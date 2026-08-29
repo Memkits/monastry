@@ -1,0 +1,8 @@
+import {
+  "tiye/respo",
+  "tiye/respo/node" @respo_node,
+  "tiye/dom-ffi" @dom,
+  "moonbitlang/core/json",
+}
+
+pkgtype(kind: "executable")

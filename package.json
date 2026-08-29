@@ -1,0 +1,18 @@
+{
+  "name": "moonast",
+  "version": "0.1.0",
+  "bin": "./cli/moonast.mjs",
+  "scripts": {
+    "build": "moon build --target js",
+    "build:moon": "moon build --target js",
+    "check": "moon check --target js",
+    "dev": "moon build --target js && vite --config vite.config.mjs",
+    "dev:moon": "moon build --target js --watch",
+    "preview": "node ./cli/moonast.mjs serve .",
+    "test": "moon test --target js && node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "vite": "5.4.21"
+  },
+  "packageManager": "yarn@4.14.1"
+}

@@ -1,0 +1,7 @@
+import {
+  "moonbitlang/parser" @mb_parser,
+  "moonbitlang/lexer/basic" @location,
+  "moonbitlang/core/env",
+}
+
+pkgtype(kind: "executable")

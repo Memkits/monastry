@@ -1,0 +1,25 @@
+* text=auto eol=lf
+
+# Keep source formats reviewable with stable line endings.
+*.mbt text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+
+# Dependency locks are committed for reproducibility but their generated
+# contents should stay collapsed in code review and out of textual diffs.
+yarn.lock linguist-generated=true -diff
+package-lock.json linguist-generated=true -diff
+pnpm-lock.yaml linguist-generated=true -diff
+bun.lock linguist-generated=true -diff
+bun.lockb linguist-generated=true -diff
+*.lock linguist-generated=true -diff
+*.lockb linguist-generated=true -diff
+
+# Tool-generated dependency metadata and MoonBit interfaces.
+.pnp.cjs linguist-generated=true -diff
+.pnp.loader.mjs linguist-generated=true -diff
+*.mbti linguist-generated=true -diff
+*.map linguist-generated=true -diff

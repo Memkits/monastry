@@ -1,0 +1,36 @@
+# MoonBit build, dependency, and generated analysis data
+_build/
+target/
+.mooncakes/
+.moonast/
+symbols.jsonl
+
+# JavaScript package-manager and build output
+node_modules/
+dist/
+.pnp.*
+.yarn/*
+!.yarn/patches/
+!.yarn/plugins/
+!.yarn/releases/
+!.yarn/sdks/
+!.yarn/versions/
+
+# Local caches, logs, and coverage
+.cache/
+.vite/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local environment files
+.env
+.env.*
+!.env.example
