@@ -1,22 +1,24 @@
-name = "moonbit-community/moonast"
+name = "tiye/monastry"
 
 version = "0.1.0"
 
 import {
   "moonbitlang/parser@0.3.9",
   "moonbitlang/lexer@0.3.9",
-  "tiye/respo@0.3.4",
-  "tiye/dom-ffi@0.2.3",
 }
 
 readme = "README.md"
 
-repository = "https://github.com/Memkits/moonast"
+repository = "https://github.com/Memkits/monastry"
 
 license = "Apache-2.0"
 
 keywords = [ "ast", "developer-tools", "moonbit" ]
 
-description = "A navigable AST explorer for MoonBit projects"
+description = "The command-line AST indexer and data service for Monastry"
 
 preferred_target = "js"
+
+options(
+  exclude: [ "docs", "frontend", "test", "web", "vite.config.mjs", "yarn.lock" ],
+)

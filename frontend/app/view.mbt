@@ -24,7 +24,7 @@ fn view_file_list(
   div(class_name="sidebar", [
     div(class_name="brand", [
       span(class_name="brand-mark", inner_text="◐", []),
-      span(class_name="brand-name", inner_text="moonast", []),
+      span(class_name="brand-name", inner_text="monastry", []),
     ]),
     input(
       class_name="file-search",

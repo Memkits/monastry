@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const ignored = new Set([".git", "_build", "target", "node_modules", "dist", ".moonast"]);
+const ignored = new Set([".git", "_build", "target", "node_modules", "dist", ".moonast", ".monastry"]);
 
 function walk(directory, files, includeDeps, insideDeps = false) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {

@@ -533,13 +533,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"moonast@workspace:.":
+"monastry@workspace:.":
   version: 0.0.0-use.local
-  resolution: "moonast@workspace:."
+  resolution: "monastry@workspace:."
   dependencies:
     vite: "npm:5.4.21"
   bin:
-    moonast: ./cli/moonast.mjs
+    monastry: ./cli/monastry.mjs
   languageName: unknown
   linkType: soft
 

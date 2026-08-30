@@ -20,7 +20,7 @@ struct Store {
 impl Default for Store with fn default() -> Store {
   {
     data: None,
-    status: "Loading /api/index.json…",
+    status: "Loading AST data…",
     query: "",
     selected_file: -1,
     panels: [],

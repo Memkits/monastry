@@ -6,6 +6,7 @@ const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.join(projectRoot, "web");
 const appFile = path.join(
   projectRoot,
+  "frontend",
   "_build",
   "js",
   "debug",
@@ -14,7 +15,7 @@ const appFile = path.join(
   "app.js",
 );
 const dataFile = path.resolve(
-  process.env.MOONAST_DATA ?? path.join(projectRoot, ".moonast", "index.json"),
+  process.env.MONASTRY_DATA ?? path.join(projectRoot, ".monastry", "index.json"),
 );
 
 function sendFile(response, file, contentType) {
@@ -32,8 +33,12 @@ function sendFile(response, file, contentType) {
 
 export default {
   root: webRoot,
+  build: {
+    outDir: path.join(projectRoot, "dist"),
+    emptyOutDir: true,
+  },
   resolve: {
-    alias: { "/app.js": appFile },
+    alias: { "/app.js": appFile, "./app.js": appFile },
   },
   server: {
     host: "127.0.0.1",
@@ -44,7 +49,7 @@ export default {
   },
   plugins: [
     {
-      name: "moonast-generated-assets",
+      name: "monastry-generated-assets",
       configureServer(server) {
         server.middlewares.use((request, response, next) => {
           const pathname = request.url?.split("?", 1)[0];

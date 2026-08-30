@@ -1,15 +1,17 @@
 {
-  "name": "moonast",
+  "name": "monastry",
   "version": "0.1.0",
-  "bin": "./cli/moonast.mjs",
+  "bin": "./cli/monastry.mjs",
   "scripts": {
-    "build": "moon build --target js",
-    "build:moon": "moon build --target js",
-    "check": "moon check --target js",
-    "dev": "moon build --target js && vite --config vite.config.mjs",
-    "dev:moon": "moon build --target js --watch",
-    "preview": "node ./cli/moonast.mjs serve .",
-    "test": "moon test --target js && node --test test/*.test.mjs"
+    "build": "yarn build:web",
+    "build:moon": "moon build --target js && moon -C frontend build --target js",
+    "build:web": "moon -C frontend build --target js && vite build --config vite.config.mjs --base=./",
+    "check": "moon check --target js && moon -C frontend check --target js",
+    "dev": "moon -C frontend build --target js && vite --config vite.config.mjs",
+    "dev:moon": "moon -C frontend build --target js --watch",
+    "preview": "node ./cli/monastry.mjs serve . --local",
+    "release:check": "moon package --list",
+    "test": "moon test --target js && moon -C frontend test --target js && node --test test/*.test.mjs"
   },
   "devDependencies": {
     "vite": "5.4.21"

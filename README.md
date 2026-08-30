@@ -1,36 +1,39 @@
-# moonast
+# monastry
 
-[![CI](https://github.com/Memkits/moonast/actions/workflows/ci.yml/badge.svg)](https://github.com/Memkits/moonast/actions/workflows/ci.yml)
+[![CI](https://github.com/Memkits/monastry/actions/workflows/ci.yml/badge.svg)](https://github.com/Memkits/monastry/actions/workflows/ci.yml)
+[![Site](https://github.com/Memkits/monastry/actions/workflows/site.yml/badge.svg)](https://github.com/Memkits/monastry/actions/workflows/site.yml)
 [![MoonBit](https://img.shields.io/badge/MoonBit-AST%20explorer-6b57ff)](https://www.moonbitlang.com/)
 
-moonast turns a MoonBit module into a navigable, execution-shaped AST website.
-It starts from an executable package's `main`, keeps the recognizable shape of
-the source, folds parser-only wrappers into compact rows, and lets references
-open their definitions in adjacent context panels.
+Monastry turns a MoonBit module into a navigable, execution-shaped AST. It
+starts at an executable package's `main`, retains the recognizable shape of
+the program, compresses parser-only detail into compact rows and tooltips, and
+opens referenced definitions in adjacent context panels.
 
-The parser adapter and browser application are written in MoonBit. A small
-Node.js host handles project discovery, MoonBit tooling subprocesses, artifact
-storage, and the loopback HTTP server. The UI uses
-[Respo.mbt](https://github.com/Respo/respo.mbt) and preserves its immutable
-state tree and virtual-DOM model.
+The frontend and command-line data service are separate:
+
+- the Respo.mbt viewer is a static site at
+  [r.tiye.me/Memkits/monastry](https://r.tiye.me/Memkits/monastry/);
+- the `monastry` CLI preprocesses a local MoonBit project and exposes its AST
+  index from a loopback HTTP endpoint;
+- the CLI prints a viewer URL containing that endpoint in the `data` query
+  parameter, so the hosted frontend can inspect local data without bundling or
+  publishing project sources.
 
 ## Highlights
 
 - Start at the selected executable `main` and follow the program outward.
 - Parse `.mbt` and `.mbt.md` files, optionally including `.mooncakes` sources.
 - Retain raw parser AST, locations, diagnostics, docs, and explicit types.
-- Present a compact semantic AST with calls, bindings, control flow, patterns,
-  interpolations, binary expressions, and labelled arguments.
+- Present a compact structural AST with calls, bindings, control flow,
+  patterns, interpolations, binary expressions, and labelled arguments.
 - Move detailed node kind, type, source range, and docs into hover metadata.
-- Link direct calls, function values, module-level `let` bindings, and
-  function-local bindings to their definitions.
-- Mark local bindings explicitly while keeping module definitions distinct.
-- Preserve the current context column when opening or replacing panels to the
-  right, and reuse an existing definition instead of duplicating it.
+- Link direct calls, function values, module-level bindings, and local bindings
+  to their definitions, without duplicating a definition already in the panel
+  chain.
 - Collect compiler-aware symbols and diagnostics through `moon ide` and
   `moon check`.
-- Write a portable, versioned `.moonast/index.json` artifact and serve it over
-  loopback HTTP.
+- Write a versioned `.monastry/index.json` artifact and expose it over a small
+  read-only, CORS-enabled HTTP service.
 
 ## Requirements
 
@@ -40,8 +43,7 @@ state tree and virtual-DOM model.
 - Corepack/Yarn; this repository pins Yarn through `packageManager`
 
 `moonbitlang/parser` and `moonbitlang/lexer` use compiler-sensitive syntax.
-Their versions and the MoonBit toolchain must be upgraded together; CI pins the
-known-compatible toolchain instead of silently following `latest`.
+Their versions and the MoonBit toolchain should be upgraded together.
 
 ## Quick start
 
@@ -50,114 +52,131 @@ corepack enable
 yarn install --immutable
 moon update
 
-node ./cli/moonast.mjs serve /path/to/moonbit/project
+node ./cli/monastry.mjs serve /path/to/moonbit/project
 ```
 
-Open <http://127.0.0.1:4177>. The server preprocesses the target project,
-builds the Respo frontend, and serves both the UI and generated index.
+The command prints both the local data endpoint and a complete hosted viewer
+URL, for example:
 
-To generate data without starting the HTTP server:
+```text
+monastry: data   http://127.0.0.1:4177/api/index.json
+monastry: viewer https://r.tiye.me/Memkits/monastry/?data=http%3A%2F%2F127.0.0.1%3A4177%2Fapi%2Findex.json
+```
+
+Open the printed viewer URL. The generated AST stays on the machine running
+the CLI; only browser requests to the loopback service read it.
+
+To generate data without starting the service:
 
 ```bash
-node ./cli/moonast.mjs build /path/to/moonbit/project
+node ./cli/monastry.mjs build /path/to/moonbit/project
 ```
 
-The default output is `/path/to/moonbit/project/.moonast/index.json`.
+The default artifact is `/path/to/moonbit/project/.monastry/index.json`.
 
 ## CLI
 
 ```text
-moonast build [project] [options]
-moonast serve [project] [options]
+monastry build [project] [options]
+monastry serve [project] [options]
 ```
 
 | Option | Meaning | Default |
 | --- | --- | --- |
-| `--out DIR`, `-o DIR` | Artifact output directory | `<project>/.moonast` |
+| `--out DIR`, `-o DIR` | Artifact output directory | `<project>/.monastry` |
 | `--include-deps` | Parse dependency sources under `.mooncakes` | disabled |
 | `--skip-check` | Skip the preprocessing `moon check` | disabled |
-| `--host HOST` | HTTP bind address for `serve` | `127.0.0.1` |
-| `--port PORT`, `-p PORT` | HTTP port for `serve` | `4177` |
+| `--host HOST` | Data-service bind address for `serve` | `127.0.0.1` |
+| `--port PORT`, `-p PORT` | Data-service port for `serve` | `4177` |
+| `--local` | Print a Vite viewer URL instead of the hosted viewer URL | disabled |
 | `--help`, `-h` | Show command help | |
 
 Examples:
 
 ```bash
 # Include dependency syntax ASTs as well as dependency symbols.
-node ./cli/moonast.mjs build ../my-app --include-deps
+node ./cli/monastry.mjs build ../my-app --include-deps
 
 # Keep generated data outside the inspected project.
-node ./cli/moonast.mjs build ../my-app --out /tmp/my-app-moonast
+node ./cli/monastry.mjs build ../my-app --out /tmp/my-app-monastry
 
-# Run a loopback server on another port.
-node ./cli/moonast.mjs serve ../my-app --port 4312
+# Connect the Vite development frontend to the CLI data service.
+node ./cli/monastry.mjs serve ../my-app --local --port 4312
 ```
 
-## Local frontend development
+Binding to a non-loopback host exposes source-bearing AST data to the network;
+only do so on a network you trust.
 
-Generate an index in this repository, then start Vite:
+## Frontend development
+
+Run the data service and Vite in separate terminals:
 
 ```bash
-node ./cli/moonast.mjs build /path/to/moonbit/project --out .moonast
-yarn build
-yarn vite --config vite.config.mjs
+# Terminal 1: preprocess the target project and print a local viewer URL.
+node ./cli/monastry.mjs serve /path/to/moonbit/project --local
+
+# Terminal 2: compile the MoonBit frontend and start Vite.
+yarn dev
 ```
 
-Vite runs at <http://127.0.0.1:5173/> and reads `.moonast/index.json`. To use
-another artifact, set `MOONAST_DATA` to its absolute `index.json` path before
-starting Vite.
+Vite runs at <http://127.0.0.1:5173/>. Open the URL printed by the first
+command so its `data` parameter points Vite at the CLI service. Vite also
+supports a repository-local artifact at `.monastry/index.json`; set
+`MONASTRY_DATA` to another absolute `index.json` path when needed.
 
-For simultaneous MoonBit and Vite development, use two terminals:
+Build the deployable static frontend with:
 
 ```bash
-yarn dev:moon
-yarn vite --config vite.config.mjs
+yarn build:web
 ```
 
-## How it works
+The output is written to `dist/` with relative asset paths and does not contain
+an AST index.
+
+## Architecture
 
 ```text
-MoonBit module
+MoonBit project
   ├─ moon check ─────────────── diagnostics
   ├─ moonbitlang/parser ─────── source AST + locations + docs
   └─ moon ide gen-symbols ───── compiler-aware symbol index
                  │
                  ▼
-          normalized program graph
-                 │
+        .monastry/index.json
+                 │ local HTTP + CORS
                  ▼
-          .moonast/index.json
-                 │ HTTP
-                 ▼
-          Respo.mbt tree UI
+  hosted or Vite Respo.mbt viewer
 ```
 
-The checked-in parser adapter uses `moonbitlang/parser`. Its AST is complete for
-syntax but untyped. `moon ide gen-symbols` supplies a bulk semantic index;
-future inferred expression types and exact cross-package navigation belong in
-the planned persistent LSP enrichment layer.
+The parser AST is complete for syntax but untyped. `moon ide gen-symbols`
+supplies a bulk semantic index; inferred expression types and exact
+cross-package navigation belong in the planned persistent LSP enrichment
+layer.
 
 ## Artifact and privacy notes
 
 The current schema version is `2`. The index contains source text, parser data,
 semantic symbols, and absolute source locations. Treat it as a local developer
-artifact: do not publish it before adding or applying path/source redaction.
+artifact. The static deployment contains only the viewer and never uploads the
+generated index.
 
-Large projects can generate sizeable single-file indexes. Per-file lazy shards
-and incremental rebuilds are planned but not part of the current format.
-
-## Development
+## Development and releases
 
 ```bash
-yarn check       # MoonBit type/lint check for the JS target
-yarn test        # MoonBit tests followed by Node.js tests
-yarn build       # Build the MoonBit Respo application for JS
-moon info        # Refresh generated public interfaces
-moon fmt         # Format MoonBit sources
+yarn check          # MoonBit type/lint check for the JS target
+yarn test           # MoonBit tests followed by Node.js tests
+yarn build:web      # Build the static Respo frontend
+yarn release:check  # Inspect and validate the MoonCakes package contents
+moon info           # Refresh generated public interfaces
+moon fmt            # Format MoonBit sources
 ```
 
-CI runs the same checks on pushes and pull requests, and also fails when
-`moon info` or `moon fmt` would leave a tracked diff.
+CI verifies pushes and pull requests. The site workflow builds and uploads PR
+previews and deploys `main` to
+[r.tiye.me/Memkits/monastry](https://r.tiye.me/Memkits/monastry/). Publishing a
+GitHub Release runs the release workflow, reads `MOON_CREDENTIALS` from Actions
+secrets, validates publication with a dry-run, and publishes `tiye/monastry` to
+MoonCakes.
 
 For design constraints and next steps, see the
 [research findings](docs/RESEARCH.md) and
@@ -168,9 +187,11 @@ For design constraints and next steps, see the
 - Full inferred expression types are not yet available from the public parser.
 - Cross-package semantic resolution is only as complete as the current
   `moon ide` output and normalized name/range matching.
-- The local server is intentionally bound to loopback by default.
 - The index is currently rebuilt as one JSON file rather than incremental
   shards.
+- Browser security settings or enterprise policies may block an HTTPS page
+  from contacting a loopback HTTP endpoint; `--local` is the development
+  fallback.
 
 ## License
 

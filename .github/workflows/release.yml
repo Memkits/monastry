@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+env:
+  MOONBIT_VERSION: "0.10.4+2cc641edf"
+
+jobs:
+  publish:
+    name: Publish CLI module to MoonCakes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install MoonBit toolchain
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s -- "$MOONBIT_VERSION"
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Update dependencies and verify CLI module
+        run: |
+          moon update
+          moon version --all
+          moon check --target js
+          moon test --target js
+          moon package --list
+
+      - name: Install MoonCakes credentials
+        env:
+          MOON_CREDENTIALS: ${{ secrets.MOON_CREDENTIALS }}
+        run: |
+          mkdir -p "$HOME/.moon"
+          printf '%s' "$MOON_CREDENTIALS" > "$HOME/.moon/credentials.json"
+          chmod 600 "$HOME/.moon/credentials.json"
+
+      - name: Validate MoonCakes publication
+        shell: bash
+        run: |
+          set +e
+          moon publish --dry-run 2>&1 | tee "$RUNNER_TEMP/monastry-publish-dry-run.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if grep -Fq "Server status: 202 Accepted" "$RUNNER_TEMP/monastry-publish-dry-run.log" && grep -Fq "Dry run completed successfully" "$RUNNER_TEMP/monastry-publish-dry-run.log"; then
+            exit 0
+          fi
+          if [[ "$status" -eq 0 ]]; then
+            exit 1
+          fi
+          exit "$status"
+
+      - name: Publish tiye/monastry
+        run: moon publish

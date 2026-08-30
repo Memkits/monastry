@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseArgs } from "../cli/args.mjs";
 import { findPackages, findSources, readModuleName } from "../cli/project.mjs";
+import { dataUrl, startServer, viewerUrl } from "../cli/server.mjs";
 import { buildProgram, testing } from "../cli/simplify.mjs";
 
 function identifier(name) {
@@ -54,15 +56,50 @@ function topBinding(name, initializer) {
 }
 
 test("parseArgs uses safe loopback defaults", () => {
-  const options = parseArgs(["build", ".", "--include-deps", "--port", "4312"]);
+  const options = parseArgs(["build", ".", "--include-deps", "--port", "4312", "--local"]);
   assert.equal(options.command, "build");
   assert.equal(options.host, "127.0.0.1");
   assert.equal(options.port, 4312);
   assert.equal(options.includeDeps, true);
+  assert.equal(options.local, true);
+  assert.equal(options.out, path.resolve(".monastry"));
+});
+
+test("viewer URL connects hosted or local frontend to the data service", () => {
+  assert.equal(dataUrl("0.0.0.0", 4177), "http://127.0.0.1:4177/api/index.json");
+  assert.equal(dataUrl("::1", 4177), "http://[::1]:4177/api/index.json");
+  const hosted = new URL(viewerUrl("127.0.0.1", 4177, false));
+  assert.equal(hosted.origin + hosted.pathname, "https://r.tiye.me/Memkits/monastry/");
+  assert.equal(hosted.searchParams.get("data"), "http://127.0.0.1:4177/api/index.json");
+  const local = new URL(viewerUrl("127.0.0.1", 4312, true));
+  assert.equal(local.origin, "http://127.0.0.1:5173");
+  assert.equal(local.searchParams.get("data"), "http://127.0.0.1:4312/api/index.json");
+});
+
+test("data service returns the index with cross-origin headers", async (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "monastry-server-"));
+  const dataFile = path.join(root, "index.json");
+  fs.writeFileSync(dataFile, '{"schemaVersion":2}');
+  const server = startServer({ host: "127.0.0.1", port: 0, dataFile, local: true });
+  await once(server, "listening");
+  context.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  const address = server.address();
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/index.json`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("access-control-allow-origin"), "*");
+  assert.equal(response.headers.get("access-control-allow-private-network"), "true");
+  assert.deepEqual(await response.json(), { schemaVersion: 2 });
+  const preflight = await fetch(`http://127.0.0.1:${address.port}/api/index.json`, {
+    method: "OPTIONS",
+  });
+  assert.equal(preflight.status, 204);
 });
 
 test("project discovery recognizes text manifests and dependency policy", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "moonast-test-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "monastry-test-"));
   try {
     fs.writeFileSync(path.join(root, "moon.mod"), 'name = "local/demo"\n');
     fs.mkdirSync(path.join(root, "lib"));
@@ -134,7 +171,7 @@ test("simplified AST compacts lambda, interpolation, and binary wrappers", () =>
 });
 
 test("buildProgram starts at executable main and links simplified calls", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "moonast-program-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "monastry-program-"));
   try {
     fs.mkdirSync(path.join(root, "app"));
     fs.writeFileSync(path.join(root, "app", "moon.pkg"), 'pkgtype(kind: "executable")\n');

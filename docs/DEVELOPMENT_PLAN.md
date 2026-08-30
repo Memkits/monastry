@@ -3,7 +3,7 @@
 ## Product goal
 
 Make a MoonBit program understandable as a navigable execution-shaped tree:
-source and docs remain visible, structural details can be expanded, semantic
+source and docs remain visible, structural details stay fully expanded, semantic
 facts appear on hover, and definitions/references can be opened indefinitely
 as right-hand context panels.
 
@@ -15,16 +15,20 @@ as right-hand context panels.
 - [x] Official parser adapter with locations, docs, and AST JSON.
 - [x] moon ide gen-symbols aggregation with collision-safe cleanup.
 - [x] Versioned compact JSON artifact.
-- [x] Loopback HTTP server.
+- [x] Frontend-independent loopback AST data service with CORS.
 - [x] Respo immutable store and recursive state tree.
 - [x] File filtering and selection.
-- [x] Expand/collapse tree controls.
+- [x] Fully expanded structure with short expressions rendered inline.
 - [x] Location, declared type, and documentation hover text.
 - [x] Executable package detection and `main`-first program view.
 - [x] Simplified structural AST with local call-to-definition links.
 - [x] Unlimited right-hand subtree panel chain.
 - [x] MoonBit test, strict check, interface generation, and formatting.
 - [x] Browser verification on a real 10-file project.
+- [x] Static Respo frontend separated into its own MoonBit module.
+- [x] Hosted/local viewer URL selection from the CLI.
+- [x] PR preview and main-site deployment workflows.
+- [x] MoonCakes package filtering and release workflow.
 
 Acceptance evidence:
 
@@ -91,10 +95,12 @@ Target budgets:
 - incremental rebuild below 500 ms for a typical source file;
 - no all-AST-node DOM work.
 
-## Milestone 5 — distribution
+## Milestone 5 — distribution (in progress)
 
-- Produce a reproducible moonast executable/package.
-- Pin a supported MoonBit toolchain range.
+- [x] Produce a reproducible Monastry CLI module package.
+- [x] Pin the currently supported MoonBit toolchain in CI.
+- [x] Publish the static viewer independently of source-bearing AST data.
+- [x] Validate MoonCakes archives and publish on GitHub Releases.
 - Test Linux, macOS, and Windows path/command behavior.
 - Add fixture modules for syntax and semantic compatibility.
 - Decide whether Node host integration migrates to MoonBit native APIs.
@@ -112,4 +118,4 @@ does, changes should remain generic and preserve:
 
 Likely reusable additions are keyed/virtualized child collections and
 fine-grained memoization. They should be developed and tested in respo.mbt
-before moonast depends on them.
+before monastry depends on them.

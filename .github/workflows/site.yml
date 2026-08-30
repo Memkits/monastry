@@ -1,0 +1,86 @@
+name: Site
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MOONBIT_VERSION: "0.10.4+2cc641edf"
+
+concurrency:
+  group: site-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    name: Build and upload static viewer
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+
+      - name: Enable pinned Yarn
+        run: corepack enable
+
+      - name: Install JavaScript dependencies
+        run: yarn install --immutable
+
+      - name: Install MoonBit toolchain
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s -- "$MOONBIT_VERSION"
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Install frontend MoonBit dependencies
+        run: moon -C frontend update
+
+      - name: Build static viewer
+        run: yarn build:web
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: monastry-site-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Select deployment target
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+        id: deploy
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "path=/web-assets/repo/${{ github.repository }}/pull/${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            echo "url=https://r.tiye.me/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=/web-assets/repo/${{ github.repository }}" >> "$GITHUB_OUTPUT"
+            echo "url=https://r.tiye.me/${{ github.repository }}/" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload viewer to r.tiye.me
+        if: steps.deploy.outcome == 'success'
+        uses: Pendect/action-rsyncer@v2.0.0
+        env:
+          DEPLOY_KEY: ${{ secrets.rsync_private_key }}
+        with:
+          flags: -avzr --delete
+          options: ""
+          ssh_options: ""
+          src: dist/
+          dest: rsync-user@tiye.me:${{ steps.deploy.outputs.path }}/
+
+      - name: Report viewer URL
+        if: steps.deploy.outcome == 'success'
+        run: echo "Viewer deployed to ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"

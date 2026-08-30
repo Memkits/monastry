@@ -3,6 +3,7 @@ _build/
 target/
 .mooncakes/
 .moonast/
+.monastry/
 symbols.jsonl
 
 # JavaScript package-manager and build output

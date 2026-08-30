@@ -14,6 +14,10 @@ extern "js" fn fetch_index(
   #| }
 
 ///|
+extern "js" fn index_url(default_url : String) -> String =
+  #| (default_url) => new URLSearchParams(window.location.search).get("data") || default_url
+
+///|
 fn main {
   let window = @dom.window()
   let mount_target = window
@@ -24,7 +28,7 @@ fn main {
   let app : @respo.RespoApp[Store] = {
     store: Ref((Default::default() : Store)),
     mount_target,
-    storage_key: "moonast",
+    storage_key: "monastry",
   }
   let update_store = fn(op : ActionOp) {
     app.store.val = app.store.val.update(op)
@@ -37,7 +41,7 @@ fn main {
   }
   app.render_loop(() => view(app.store.val), dispatch_action)
   fetch_index(
-    "/api/index.json",
+    index_url("/api/index.json"),
     text => {
       update_store(DataLoaded(@json.parse(text))) catch {
         error => update_store(LoadFailed("\{error}"))

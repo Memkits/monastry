@@ -13,11 +13,25 @@ The practical design is a layered index:
    documentation comments.
 2. Use compiler-aware moon ide commands (or the same engine through LSP) for
    symbols, definitions, references, hover text, and inferred types.
-3. Normalize both into a versioned moonast schema. Never bind the UI directly
+3. Normalize both into a versioned monastry schema. Never bind the UI directly
    to either experimental representation.
 
 This keeps the implementation useful while leaving a clean seam for more
 compiler information when MoonBit exposes a supported typed-tree API.
+
+## Delivery architecture
+
+The repository contains two MoonBit modules with separate lifecycles. The root
+module contains the parser adapter and Node.js CLI host and is the only module
+packaged for MoonCakes. `frontend/` contains the Respo application and is built
+as a static site. The module's publish exclusions keep frontend and development
+assets out of the CLI archive, while `moon package --list` and an authenticated
+`moon publish --dry-run` verify that boundary before release.
+
+The CLI data service binds to loopback by default and sends CORS and Private
+Network Access response headers. The viewer selects its index endpoint from a
+`data` query parameter, allowing the deployed static site or the Vite dev
+server to connect to the same local service.
 
 ## Evaluated acquisition paths
 
@@ -54,11 +68,11 @@ The installed moon exposes compiler-aware commands documented by moon ide
 - doc
 
 gen-symbols was verified against tiye/respo: it emitted 1,235 JSONL symbols and
-included .mooncakes dependencies. Against tiye/react, the end-to-end moonast run
+included .mooncakes dependencies. Against tiye/react, the end-to-end monastry run
 indexed 1,096 semantic symbols. This is the best bulk entry point today.
 
 The command has no output-path option and writes symbols.jsonl in the package.
-moonast refuses to overwrite a pre-existing file, reads the generated file, and
+monastry refuses to overwrite a pre-existing file, reads the generated file, and
 removes only the file it created.
 
 ### MoonBit LSP — selected for phase-two type enrichment
@@ -77,7 +91,7 @@ range, and toolchain fingerprint.
 The IDE build produces lsp.ast files, and the installed binary contains a full
 typed-tree implementation. The observed file starts with a versioned magic such
 as MAST250715, but there is no supported decoder or compatibility contract.
-Reading it would couple moonast to private compiler serialization.
+Reading it would couple monastry to private compiler serialization.
 
 ### Compiler source fork — fallback only
 

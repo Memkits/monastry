@@ -1,0 +1,20 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "tiye/monastry-frontend/app"
+
+// Values
+
+// Errors
+
+// Types and methods
+type ActionOp derive(Eq, ToJson)
+
+type GlobalEvent derive(Default, Eq)
+
+type Panel derive(Eq, ToJson)
+
+type Store derive(Eq)
+
+// Type aliases
+
+// Traits
+
