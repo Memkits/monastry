@@ -176,7 +176,8 @@ previews and deploys `main` to
 [r.tiye.me/Memkits/monastry](https://r.tiye.me/Memkits/monastry/). Publishing a
 GitHub Release runs the release workflow, reads `MOON_CREDENTIALS` from Actions
 secrets, validates publication with a dry-run, and publishes `tiye/monastry` to
-MoonCakes.
+MoonCakes. Manually dispatching the same workflow performs the authenticated
+dry-run only and never publishes a package.
 
 For design constraints and next steps, see the
 [research findings](docs/RESEARCH.md) and

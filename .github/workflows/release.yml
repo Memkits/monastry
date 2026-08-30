@@ -3,6 +3,7 @@ name: Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -57,4 +58,9 @@ jobs:
           exit "$status"
 
       - name: Publish tiye/monastry
+        if: github.event_name == 'release'
         run: moon publish
+
+      - name: Report validation-only run
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "MoonCakes dry-run passed; no package was published." >> "$GITHUB_STEP_SUMMARY"
