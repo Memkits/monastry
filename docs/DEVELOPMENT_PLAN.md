@@ -19,9 +19,16 @@ as right-hand context panels.
 - [x] Respo immutable store and recursive state tree.
 - [x] File filtering and selection.
 - [x] Fully expanded structure with short expressions rendered inline.
-- [x] Location, declared type, and documentation hover text.
+- [x] Definition documentation and declared signatures above the AST, with
+  location, type, and parser detail retained in hover text.
 - [x] Executable package detection and `main`-first program view.
-- [x] Simplified structural AST with local call-to-definition links.
+- [x] Simplified structural AST with project-local links for functions, top
+  bindings, types/constructors, implementations, local bindings, parameters,
+  and pattern bindings.
+- [x] MoonBit-like inline field access, method chains, mutations, and record
+  fields, without punctuation-only rows or loss of type/link interactions.
+- [x] Uniform 560-pixel columns, per-column referenced-definition shelves, and
+  independently typed and linked field/method chain segments.
 - [x] Unlimited right-hand subtree panel chain.
 - [x] MoonBit test, strict check, interface generation, and formatting.
 - [x] Browser verification on a real 10-file project.
@@ -34,9 +41,10 @@ Acceptance evidence:
 
 - moon check --target js -d passes.
 - moon test --target js passes.
-- tiye/react produced 10 files and 1,096 symbols.
-- Browser tests verified filtering, file switching, two consecutive detail
-  panels, hover metadata, and zero console errors.
+- Monastry self-indexing produced 8 files and 7,424 compiler symbols.
+- Browser tests verified typed local-definition navigation, constructor-to-type
+  navigation, documentation/type summaries, a unified horizontally scrolling
+  source/detail column chain, and zero console errors.
 
 ## Milestone 1 — stable normalized graph
 

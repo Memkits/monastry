@@ -18,6 +18,7 @@ extern "js" fn index_url(default_url : String) -> String =
   #| (default_url) => new URLSearchParams(window.location.search).get("data") || default_url
 
 ///|
+/// Starts the Respo viewer and loads the AST index selected by the page URL.
 fn main {
   let window = @dom.window()
   let mount_target = window
@@ -25,15 +26,18 @@ fn main {
     .query_selector(".app")
     .unwrap()
     .reinterpret_as_node()
+  // Owns the viewer state, mount point, and persisted Respo session.
   let app : @respo.RespoApp[Store] = {
     store: Ref((Default::default() : Store)),
     mount_target,
     storage_key: "monastry",
   }
+  // Applies one state transition and schedules the following render.
   let update_store = fn(op : ActionOp) {
     app.store.val = app.store.val.update(op)
     @respo.mark_need_rerender()
   }
+  // Adapts Respo dispatch to the viewer's ActionOp update function.
   let dispatch_action : (ActionOp) -> Unit raise @respo_node.RespoCommonError = fn(
     op,
   ) {

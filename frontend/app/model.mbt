@@ -2,12 +2,14 @@
 using @respo_node {type RespoNode, div, span, input, button}
 
 ///|
+/// A definition opened as one navigable source column.
 struct Panel {
   title : String
   value : Json
 } derive(Eq, ToJson)
 
 ///|
+/// State for the source list, selected entry, and right-hand definition chain.
 struct Store {
   data : Json?
   status : String
@@ -17,6 +19,7 @@ struct Store {
 } derive(Eq)
 
 ///|
+/// Creates the empty viewer state used before an AST index is loaded.
 impl Default for Store with fn default() -> Store {
   {
     data: None,
@@ -28,6 +31,7 @@ impl Default for Store with fn default() -> Store {
 }
 
 ///|
+/// Operations that load data and navigate the AST viewer.
 enum ActionOp {
   DataLoaded(Json)
   LoadFailed(String)
@@ -39,6 +43,7 @@ enum ActionOp {
 } derive(Eq, ToJson)
 
 ///|
+/// Applies one viewer operation while preserving the immutable Respo store.
 fn Store::update(self : Store, op : ActionOp) -> Store {
   match op {
     DataLoaded(data) => { ..self, data: Some(data), status: "Ready" }

@@ -1,8 +1,115 @@
 ///|
+fn view_definition_summary(value : Json) -> RespoNode[ActionOp, GlobalEvent] {
+  let doc = json_string(json_field(value, "doc"), "")
+  let type_label = node_type_label(value)
+  if doc.is_empty() && type_label.is_empty() {
+    return div([])
+  }
+  div(class_name="definition-summary", [
+    if doc.is_empty() {
+      div([])
+    } else {
+      div(class_name="definition-doc", [
+        span(class_name="summary-label", inner_text="DOCUMENTATION", []),
+        span(class_name="summary-doc-text", inner_text=doc, []),
+      ])
+    },
+    if type_label.is_empty() {
+      div([])
+    } else {
+      div(class_name="definition-type", [
+        span(class_name="summary-label", inner_text="TYPE", []),
+        span(class_name="summary-type-text", inner_text=type_label, []),
+      ])
+    },
+  ])
+}
+
+///|
+fn collect_references(
+  value : Json,
+  definitions : Array[Json],
+  seen : Array[String],
+  result : Array[Json],
+) -> Unit {
+  match value {
+    Object(fields) => {
+      let target_id = json_string(fields.get("targetId"), "")
+      if !target_id.is_empty() {
+        let mut duplicate = false
+        for id in seen {
+          if id == target_id {
+            duplicate = true
+          }
+        }
+        let (_title, _target, linked) = node_target(value, definitions)
+        if linked && !duplicate {
+          seen.push(target_id)
+          result.push(value)
+        }
+      }
+      match fields.get("segments") {
+        Some(Array(items)) =>
+          for item in items {
+            collect_references(item, definitions, seen, result)
+          }
+        _ => ()
+      }
+      match fields.get("children") {
+        Some(Array(items)) =>
+          for item in items {
+            collect_references(item, definitions, seen, result)
+          }
+        _ => ()
+      }
+    }
+    Array(items) =>
+      for item in items {
+        collect_references(item, definitions, seen, result)
+      }
+    _ => ()
+  }
+}
+
+///|
+fn view_reference_shelf(
+  value : Json,
+  definitions : Array[Json],
+  source_index : Int,
+) -> RespoNode[ActionOp, GlobalEvent] {
+  let references : Array[Json] = []
+  let seen : Array[String] = []
+  collect_references(value, definitions, seen, references)
+  if references.is_empty() {
+    return div([])
+  }
+  let items = references.map(reference => {
+    let (panel_title, panel_value, _linked) = node_target(
+      reference, definitions,
+    )
+    button(
+      class_name="reference-chip",
+      attrs={ "title": node_tooltip(reference) },
+      inner_text=node_code(reference, "definition"),
+      on_click=(_event, dispatch) => {
+        dispatch.run(OpenPanel(source_index, panel_title, panel_value))
+        reveal_right_panel()
+      },
+    )
+  })
+  div(class_name="reference-shelf", [
+    span(class_name="reference-label", inner_text="REFERENCED DEFINITIONS", []),
+    div(class_name="reference-list", items),
+  ])
+}
+
+///|
 fn view_file_list(
   store : Store,
   files : Array[Json],
   entry : Json?,
+  project : String,
+  status : String,
 ) -> RespoNode[ActionOp, GlobalEvent] {
   let items : Array[RespoNode[ActionOp, GlobalEvent]] = []
   files.eachi((index, file) => {
@@ -16,26 +123,19 @@ fn view_file_list(
             "file-item"
           },
           inner_text=path,
+          attrs={ "title": path },
           on_click=(_event, dispatch) => dispatch.run(SelectFile(index)),
         ),
       )
     }
   })
-  div(class_name="sidebar", [
+  div(class_name="topbar", [
     div(class_name="brand", [
       span(class_name="brand-mark", inner_text="◐", []),
       span(class_name="brand-name", inner_text="monastry", []),
+      span(class_name="project-name", inner_text=project, []),
+      span(class_name="status", inner_text=status, []),
     ]),
-    input(
-      class_name="file-search",
-      value=store.query,
-      placeholder="Filter files…",
-      on_input=(event, dispatch) => {
-        if event is Input(value~, ..) {
-          dispatch.run(SetQuery(value))
-        }
-      },
-    ),
     match entry {
       Some(entry_value) => {
         let entry_name = json_string(json_field(entry_value, "name"), "main")
@@ -46,15 +146,26 @@ fn view_file_list(
           } else {
             "entry-item"
           },
-          inner_text="PROGRAM ENTRY\n▶ " + entry_name + "\n" + entry_path,
+          attrs={ "title": "Program entry · " + entry_path },
+          inner_text="▶ " + entry_name,
           on_click=(_event, dispatch) => dispatch.run(SelectEntry),
         )
       }
       None =>
         div(class_name="entry-missing", [span(inner_text="No main entry", [])])
     },
+    input(
+      class_name="file-search",
+      value=store.query,
+      placeholder="Filter files…",
+      on_input=(event, dispatch) => {
+        if event is Input(value~, ..) {
+          dispatch.run(SetQuery(value))
+        }
+      },
+    ),
     div(class_name="file-count", [
-      span(inner_text="\{files.length()} source files", []),
+      span(inner_text="\{files.length()} files", []),
     ]),
     div(class_name="file-list", items),
   ])
@@ -111,9 +222,11 @@ fn view_main_tree(
         [],
       ),
     ]),
+    view_definition_summary(ast),
     div(class_name="tree-scroll", [
       comp_json_tree("AST", ast, 0, definitions, -1),
     ]),
+    view_reference_shelf(ast, definitions, -1),
   ])
 }
 
@@ -132,16 +245,14 @@ fn view_panels(
           dispatch,
         ) => dispatch.run(ClosePanelsFrom(index))),
       ]),
+      view_definition_summary(panel.value),
       div(class_name="panel-tree", [
         comp_json_tree(panel.title, panel.value, 0, definitions, index),
       ]),
+      view_reference_shelf(panel.value, definitions, index),
     ])
   })
-  if panels.is_empty() {
-    div([])
-  } else {
-    div(class_name="panel-strip", panels)
-  }
+  div(class_name="panel-columns", panels)
 }
 
 ///|
@@ -169,13 +280,9 @@ fn view(store : Store) -> RespoNode[ActionOp, GlobalEvent] {
       }
       let project = json_string(project_field, "MoonBit project")
       div(class_list=[@respo.ui_global, "app-shell"], [
-        view_file_list(store, files, entry),
+        view_file_list(store, files, entry, project, store.status),
         div(class_name="content", [
-          div(class_name="project-bar", [
-            span(class_name="project-name", inner_text=project, []),
-            span(class_name="status", inner_text=store.status, []),
-          ]),
-          div(class_name="content-row", [
+          div(class_name="column-scroll", [
             view_main_tree(store, files, entry, definitions),
             view_panels(store, definitions),
           ]),

@@ -22,6 +22,7 @@ const kindNames = new Map([
   ["Impl::TopFuncDef", "Function"],
   ["Impl::TopTypeDef", "TypeDefinition"],
   ["Impl::TopLetDef", "Binding"],
+  ["Impl::TopImpl", "Implementation"],
   ["Expr::Apply", "Call"],
   ["Expr::Ident", "Identifier"],
   ["Expr::Let", "Let"],
@@ -144,7 +145,18 @@ function patternName(node) {
     const names = listChildren(value.pats).map(patternName).filter(Boolean);
     return `(${names.join(", ")})`;
   }
+  if (node.kind === "Pattern::Constraint" || node.kind === "Pattern::Alias") {
+    return patternName(value.pat ?? value.pattern ?? value.value) ??
+      longIdent(value.binder ?? value.alias);
+  }
   return longIdent(node);
+}
+
+function patternType(node) {
+  if (!node || typeof node !== "object") return undefined;
+  const value = children(node);
+  return typeText(value.ty) ??
+    patternType(value.pat ?? value.pattern ?? value.value);
 }
 
 function scalarSummary(node) {
@@ -172,6 +184,12 @@ function roleName(role) {
   return role.replaceAll("_", " ");
 }
 
+function cleanDocumentation(value) {
+  if (typeof value !== "string") return undefined;
+  const documentation = value.trim();
+  return documentation || undefined;
+}
+
 function normalizeChildren(value, role, context) {
   if (value == null) return [];
   if (Array.isArray(value)) return value.flatMap((item) => normalizeChildren(item, role, context));
@@ -184,6 +202,8 @@ function normalizeChildren(value, role, context) {
       ignoredFields.has(key) ? [] : normalizeChildren(item, key, context),
     );
   }
+  if (value.kind.startsWith("TrailingMark::") || value.kind.startsWith("Trailing::")) return [];
+  if (value.kind === "Comma" || value.kind === "Brace" || value.kind.startsWith("Group::")) return [];
   if (value.kind === "Argument") {
     const argument = children(value);
     const argumentKind = argument.kind;
@@ -229,6 +249,7 @@ function lambdaNode(node, role, context) {
     ...(role ? { role: roleName(role) } : {}),
     ...(parameterText ? { value: parameterText } : {}),
     ...(node.loc ? { loc: node.loc } : {}),
+    ...(parameters.length > 0 ? { bindings: parameters } : {}),
     children: normalizeChildren(value.body, "body", context),
   };
 }
@@ -241,11 +262,12 @@ function functionNode(node, context) {
   const returnType = typeText(declarationChildren.return_type) ?? "Unit";
   const signature = `(${parameters.map((item) => item.type ?? "_").join(", ")}) -> ${returnType}`;
   const body = at(node, "children", "decl_body", "children", "expr");
+  const documentation = cleanDocumentation(declarationChildren.doc);
   return {
     kind: "Function",
     name,
     type: signature,
-    ...(declarationChildren.doc ? { doc: declarationChildren.doc } : {}),
+    ...(documentation ? { doc: documentation } : {}),
     ...(node.loc ? { loc: node.loc } : {}),
     children: [
       ...parameters,
@@ -254,18 +276,83 @@ function functionNode(node, context) {
   };
 }
 
+function typeParameterText(node) {
+  return longIdent(node) ??
+    at(node, "children", "name") ??
+    at(node, "children", "binder", "children", "name");
+}
+
+function fieldDeclarationText(node) {
+  const value = children(node);
+  const name = at(value, "name", "children", "label") ?? longIdent(value.name) ?? "field";
+  return `${name}: ${typeText(value.ty) ?? "_"}`;
+}
+
+function constructorDeclarationText(node) {
+  const value = children(node);
+  const name = longIdent(value.name) ?? "Constructor";
+  const args = listChildren(value.args).map((item) => typeText(children(item).ty) ?? "_");
+  return args.length === 0 ? name : `${name}(${args.join(", ")})`;
+}
+
+function typeDefinitionSignature(value) {
+  const name = value.tycon ?? "anonymous";
+  const params = listChildren(value.params).map(typeParameterText).filter(Boolean);
+  const named = params.length === 0 ? name : `${name}[${params.join(", ")}]`;
+  const components = value.components;
+  if (components?.kind === "TypeDesc::Record") {
+    const fields = listChildren(at(components, "children", "value"))
+      .map(fieldDeclarationText);
+    return `struct ${named} { ${fields.join(", ")} }`;
+  }
+  if (components?.kind === "TypeDesc::Variant") {
+    const constructors = listChildren(at(components, "children", "value"))
+      .map(constructorDeclarationText);
+    return `enum ${named} { ${constructors.join(" | ")} }`;
+  }
+  return `type ${named}`;
+}
+
 function typeDefinitionNode(node, context) {
   const declaration = at(node, "children", "value") ?? {};
   const value = children(declaration);
+  const documentation = cleanDocumentation(value.doc);
   const normalized = {
     kind: "TypeDefinition",
     name: value.tycon ?? "anonymous",
-    ...(value.doc ? { doc: value.doc } : {}),
+    type: typeDefinitionSignature(value),
+    ...(documentation ? { doc: documentation } : {}),
     ...(node.loc ? { loc: node.loc } : {}),
     children: normalizeChildren(value.components, "body", context),
   };
   if (normalized.children.length === 0) delete normalized.children;
   return normalized;
+}
+
+function implementationNode(node, context) {
+  const value = children(node);
+  const name = longIdent(value.method_name) ?? "implementation";
+  const trait = longIdent(value.trait);
+  const selfType = typeText(value.self_ty);
+  const parameters = listChildren(value.params).map(parameterNode);
+  const returnType = typeText(value.ret_ty) ?? "Unit";
+  const owner = [trait, selfType].filter(Boolean).join(" for ");
+  const signature = `${owner ? `${owner} · ` : ""}(${parameters
+    .map((item) => item.type ?? "_")
+    .join(", ")}) -> ${returnType}`;
+  const body = at(value, "body", "children", "expr");
+  const documentation = cleanDocumentation(value.doc);
+  return {
+    kind: "Implementation",
+    name,
+    type: signature,
+    ...(documentation ? { doc: documentation } : {}),
+    ...(node.loc ? { loc: node.loc } : {}),
+    children: [
+      ...parameters,
+      ...normalizeChildren(body, "body", { ...context, functionName: name }),
+    ],
+  };
 }
 
 function argumentNode(node, role, context) {
@@ -302,6 +389,166 @@ function compactRawExpression(node) {
   if (node.kind === "InterpElem::Literal") return value.repr;
   if (node.kind === "InterpElem::Source") return `{${value.source ?? "…"}}`;
   return undefined;
+}
+
+function fieldPath(node) {
+  if (!node || typeof node !== "object") return undefined;
+  if (node.kind === "Expr::Ident") {
+    const baseName = expressionName(node);
+    return baseName ? { text: baseName, baseName } : undefined;
+  }
+  if (node.kind !== "Expr::Field") return undefined;
+  const value = children(node);
+  const record = fieldPath(value.record);
+  const accessor = longIdent(at(value, "accessor", "children", "value")) ??
+    longIdent(value.accessor);
+  if (!record || !accessor) return undefined;
+  return { text: `${record.text}.${accessor}`, baseName: record.baseName };
+}
+
+function compactExpressionText(node) {
+  if (!node || typeof node !== "object") return undefined;
+  const value = children(node);
+  if (node.kind === "Expr::Ident" || node.kind === "Expr::Constr") {
+    return expressionName(node);
+  }
+  if (node.kind === "Expr::Constant") {
+    const scalar = scalarSummary(node);
+    return value.constant?.kind === "Constant::String"
+      ? JSON.stringify(scalar)
+      : scalar == null ? undefined : String(scalar);
+  }
+  if (node.kind === "Expr::Field") return fieldPath(node)?.text;
+  if (node.kind === "Expr::Apply") {
+    const name = expressionName(value.func);
+    const args = listChildren(value.args).map((argument) =>
+      compactExpressionText(children(argument).value)
+    );
+    if (!name) return undefined;
+    return `${name}(${args.every(Boolean) ? args.join(", ") : "…"})`;
+  }
+  if (node.kind === "Expr::DotApply") {
+    const receiver = compactExpressionText(value.self);
+    const method = longIdent(value.method_name);
+    const args = listChildren(value.args).map((argument) =>
+      compactExpressionText(children(argument).value)
+    );
+    if (!receiver || !method) return undefined;
+    return `${receiver}.${method}(${args.every(Boolean) ? args.join(", ") : "…"})`;
+  }
+  return undefined;
+}
+
+function fieldAccessNode(node, role) {
+  const path = fieldPath(node);
+  if (!path) return undefined;
+  return {
+    kind: "FieldAccess",
+    ...(role ? { role: roleName(role) } : {}),
+    name: path.text,
+    referenceName: path.baseName,
+    segments: accessSegments(node),
+    ...(node.loc ? { loc: node.loc } : {}),
+  };
+}
+
+function accessSegments(node) {
+  if (!node || typeof node !== "object") return [];
+  const value = children(node);
+  if (node.kind === "Expr::Ident") {
+    const name = longIdent(node);
+    return name
+      ? [{ kind: "Identifier", name, referenceName: name, ...(node.loc ? { loc: node.loc } : {}) }]
+      : [];
+  }
+  if (node.kind === "Expr::Field") {
+    const base = accessSegments(value.record);
+    const name = longIdent(at(value, "accessor", "children", "value")) ??
+      longIdent(value.accessor);
+    return name
+      ? [...base, { kind: "FieldSegment", name, referenceName: name, ...(node.loc ? { loc: node.loc } : {}) }]
+      : base;
+  }
+  if (node.kind === "Expr::DotApply") {
+    const base = accessSegments(value.self);
+    const method = longIdent(value.method_name);
+    const args = listChildren(value.args).map((argument) =>
+      compactExpressionText(children(argument).value)
+    );
+    if (!method) return base;
+    const name = `${method}(${args.every(Boolean) ? args.join(", ") : "…"})`;
+    return [...base, {
+      kind: "MethodSegment",
+      name,
+      referenceName: method,
+      ...(node.loc ? { loc: node.loc } : {}),
+    }];
+  }
+  const name = compactExpressionText(node);
+  return name ? [{ kind: "ValueSegment", name, ...(node.loc ? { loc: node.loc } : {}) }] : [];
+}
+
+function dotApplyNode(node, role, context) {
+  const value = children(node);
+  const receiver = compactExpressionText(value.self) ?? "value";
+  const method = longIdent(value.method_name) ?? "method";
+  const rawArguments = listChildren(value.args);
+  const detailedArguments = rawArguments.filter((argument) => {
+    const expression = children(argument).value;
+    return expression?.kind !== "Expr::Constant";
+  });
+  const normalizedArguments = detailedArguments.flatMap((argument) =>
+    normalizeChildren(argument, "args", context),
+  );
+  const inlineArguments = rawArguments.map((argument) =>
+    compactExpressionText(children(argument).value),
+  );
+  const name = normalizedArguments.length === 0 && inlineArguments.every(Boolean)
+    ? `${receiver}.${method}(${inlineArguments.join(", ")})`
+    : `${receiver}.${method}`;
+  const result = {
+    kind: "MethodCall",
+    ...(role ? { role: roleName(role) } : {}),
+    name,
+    referenceName: method,
+    segments: accessSegments(node),
+    ...(node.loc ? { loc: node.loc } : {}),
+    children: normalizedArguments,
+  };
+  if (result.children.length === 0) delete result.children;
+  return result;
+}
+
+function mutationNode(node, role, context) {
+  const value = children(node);
+  const record = fieldPath(value.record);
+  const accessor = longIdent(at(value, "accessor", "children", "value")) ??
+    longIdent(value.accessor);
+  const name = record && accessor ? `${record.text}.${accessor}` : "field";
+  const result = {
+    kind: "Mutation",
+    ...(role ? { role: roleName(role) } : {}),
+    name,
+    ...(record?.baseName ? { referenceName: record.baseName } : {}),
+    ...(node.loc ? { loc: node.loc } : {}),
+    children: normalizeChildren(value.field, "value", context),
+  };
+  if (result.children.length === 0) delete result.children;
+  return result;
+}
+
+function recordFieldNode(node, role, context) {
+  const value = children(node);
+  const name = longIdent(value.label) ?? "field";
+  const result = {
+    kind: "RecordField",
+    ...(role ? { role: roleName(role) } : {}),
+    name,
+    ...(node.loc ? { loc: node.loc } : {}),
+    children: normalizeChildren(value.expr, "value", context),
+  };
+  if (result.children.length === 0) delete result.children;
+  return result;
 }
 
 function interpolationNode(node, role) {
@@ -343,11 +590,29 @@ function infixNode(node, role, context) {
 function normalizeNode(node, role, context) {
   if (node.kind === "Impl::TopFuncDef") return functionNode(node, context);
   if (node.kind === "Impl::TopTypeDef") return typeDefinitionNode(node, context);
+  if (node.kind === "Impl::TopImpl") return implementationNode(node, context);
   if (node.kind === "Expr::Function" || node.kind === "Func::Lambda") {
     return lambdaNode(node, role, context);
   }
   if (node.kind === "Expr::Interp") return interpolationNode(node, role);
   if (node.kind === "Expr::Infix") return infixNode(node, role, context);
+  if (node.kind === "Expr::Field") {
+    const compact = fieldAccessNode(node, role);
+    if (compact) return compact;
+    const fallback = {
+      kind: "FieldAccess",
+      ...(role ? { role: roleName(role) } : {}),
+      ...(node.loc ? { loc: node.loc } : {}),
+      children: Object.entries(children(node)).flatMap(([key, item]) =>
+        normalizeChildren(item, key, context)
+      ),
+    };
+    if (fallback.children.length === 0) delete fallback.children;
+    return fallback;
+  }
+  if (node.kind === "Expr::DotApply") return dotApplyNode(node, role, context);
+  if (node.kind === "Expr::Mutate") return mutationNode(node, role, context);
+  if (node.kind === "FieldDef") return recordFieldNode(node, role, context);
   if (node.kind?.startsWith("Parameter::")) return parameterNode(node);
   if (node.kind === "Argument") return argumentNode(node, role, context);
 
@@ -365,10 +630,13 @@ function normalizeNode(node, role, context) {
   else if (node.kind?.startsWith("Pattern::")) name = patternName(node);
   else name = longIdent(node);
   const scalar = scalarSummary(node);
-  const explicitType = typeText(value.ty);
+  const explicitType = typeText(value.ty) ??
+    (node.kind === "Expr::Let" ? patternType(value.pattern) : undefined);
   if (name) result.name = name;
   if (scalar != null) result.value = String(scalar);
   if (explicitType) result.type = explicitType;
+  const documentation = cleanDocumentation(value.doc);
+  if (documentation) result.doc = documentation;
 
   const entries = Object.entries(value).filter(([key]) => !ignoredFields.has(key));
   const normalizedChildren = entries.flatMap(([key, item]) => {
@@ -382,6 +650,36 @@ function normalizeNode(node, role, context) {
   });
   if (normalizedChildren.length > 0) result.children = normalizedChildren;
   return result;
+}
+
+function nestedNames(node, kind, result = []) {
+  if (!node || typeof node !== "object") return result;
+  if (node.kind === kind && node.name) result.push(node.name);
+  for (const child of node.children ?? []) nestedNames(child, kind, result);
+  return result;
+}
+
+function leadingDocumentation(source, line) {
+  if (!source || !Number.isInteger(line) || line <= 1) return undefined;
+  const lines = source.split(/\r?\n/);
+  const docs = [];
+  for (let index = line - 2; index >= 0; index -= 1) {
+    const sourceLine = lines[index];
+    if (sourceLine == null) break;
+    const text = sourceLine.trim();
+    if (text === "///|") break;
+    if (text.startsWith("///")) {
+      docs.unshift(text.slice(3).trimStart());
+      continue;
+    }
+    if (text.startsWith("//")) {
+      docs.unshift(text.slice(2).trimStart());
+      continue;
+    }
+    break;
+  }
+  const documentation = docs.join("\n").trim();
+  return documentation || undefined;
 }
 
 function manifestIsExecutable(project, packageName) {
@@ -400,17 +698,61 @@ function manifestIsExecutable(project, packageName) {
   return false;
 }
 
-function collectLocalDefinitions(node, owner, definitions) {
+const localDefinitionKinds = new Set([
+  "binding",
+  "local-function",
+  "parameter",
+  "pattern",
+]);
+
+function positionInScope(position, scope) {
+  if (!position || !scope?.start || !scope?.end) return true;
+  const afterStart = position.line > scope.start.line ||
+    (position.line === scope.start.line && position.column >= scope.start.column);
+  const beforeEnd = position.line < scope.end.line ||
+    (position.line === scope.end.line && position.column <= scope.end.column);
+  return afterStart && beforeEnd;
+}
+
+function localId(prefix, owner, node, name) {
+  const line = node.loc?.start?.line ?? 0;
+  const column = node.loc?.start?.column ?? 0;
+  return `${prefix}:${owner.id}:${line}:${column}:${name}`;
+}
+
+function collectLocalDefinitions(
+  node,
+  owner,
+  definitions,
+  source,
+  inheritedScope = owner.ast.loc,
+) {
   if (!node || typeof node !== "object") return;
+  const introducesScope = node.kind === "Function" ||
+    node.kind === "Implementation" ||
+    node.kind === "Lambda" ||
+    node.kind === "Case";
+  const nodeScope = introducesScope && node.loc ? node.loc : inheritedScope;
   if (node.kind === "Let" && node.name) {
     const line = node.loc?.start?.line ?? 0;
-    const id = `local:${owner.fileId}:${line}:${node.name}`;
+    const id = localId("local", owner, node, node.name);
     const initializer = (node.children ?? []).filter((child) => child.role === "expr");
+    const lambda = initializer.find((child) => child.kind === "Lambda");
+    const localFunction = lambda != null;
+    const localFunctionType = localFunction
+      ? `(${(lambda.bindings ?? []).map((binding) => binding.type ?? "_").join(", ")}) -> _`
+      : undefined;
     const end = initializer.at(-1)?.loc?.end ?? node.loc?.end;
+    const documentation = cleanDocumentation(node.doc) ?? leadingDocumentation(source, line);
     node.scope = "local";
     node.targetScope = "local";
+    if (localFunction) {
+      node.localFunction = true;
+      if (!node.type) node.type = localFunctionType;
+    }
     const ast = {
       ...node,
+      ...(documentation ? { doc: documentation } : {}),
       ...(node.loc ? { loc: { ...node.loc, ...(end ? { end } : {}) } } : {}),
       children: initializer,
     };
@@ -420,7 +762,7 @@ function collectLocalDefinitions(node, owner, definitions) {
     node.targetId = id;
     definitions.push({
       id,
-      kind: "binding",
+      kind: localFunction ? "local-function" : "binding",
       ownerId: owner.id,
       name: node.name,
       fileId: owner.fileId,
@@ -428,42 +770,136 @@ function collectLocalDefinitions(node, owner, definitions) {
       package: owner.package,
       dependency: owner.dependency,
       line,
+      scope: node.loc ?? nodeScope,
       ast,
     });
+  } else if (node.kind === "Parameter" && node.name && node.name !== "_") {
+    const line = node.loc?.start?.line ?? 0;
+    const id = localId("parameter", owner, node, node.name);
+    node.scope = "local";
+    node.targetScope = "local";
+    node.definitionId = id;
+    node.targetId = id;
+    definitions.push({
+      id,
+      kind: "parameter",
+      ownerId: owner.id,
+      name: node.name,
+      fileId: owner.fileId,
+      path: owner.path,
+      package: owner.package,
+      dependency: owner.dependency,
+      line,
+      scope: nodeScope,
+      ast: { ...node },
+    });
+  } else if (node.kind === "VarPattern" && node.name && node.name !== "_") {
+    const line = node.loc?.start?.line ?? 0;
+    const id = localId("pattern", owner, node, node.name);
+    node.scope = "local";
+    node.targetScope = "local";
+    node.definitionId = id;
+    node.targetId = id;
+    definitions.push({
+      id,
+      kind: "pattern",
+      ownerId: owner.id,
+      name: node.name,
+      fileId: owner.fileId,
+      path: owner.path,
+      package: owner.package,
+      dependency: owner.dependency,
+      line,
+      scope: nodeScope,
+      ast: { ...node },
+    });
   }
-  for (const child of node.children ?? []) collectLocalDefinitions(child, owner, definitions);
+  const childScope = node.kind === "Let" && node.loc ? node.loc : nodeScope;
+  for (const binding of node.bindings ?? []) {
+    collectLocalDefinitions(binding, owner, definitions, source, childScope);
+  }
+  for (const child of node.children ?? []) {
+    collectLocalDefinitions(child, owner, definitions, source, childScope);
+  }
 }
 
 function linkReferences(node, definitions, currentPackage, ownerId) {
   if (!node || typeof node !== "object") return;
-  if ((node.kind === "Call" || node.kind === "Identifier") && node.name) {
-    const leaf = node.name.split(".").at(-1);
-    const matches = definitions.filter((definition) => definition.name === leaf);
+  const referenceKinds = new Set([
+    "Call",
+    "Identifier",
+    "Constructor",
+    "ConstrName",
+    "ConstrId",
+    "FieldAccess",
+    "Ident",
+    "Label",
+    "MethodCall",
+    "MethodSegment",
+    "FieldSegment",
+    "Mutation",
+    "Name",
+    "TypeName",
+  ]);
+  if (referenceKinds.has(node.kind) && node.name) {
+    const referenceName = node.referenceName ?? node.name;
+    const leaf = referenceName.split(".").at(-1);
+    const matches = definitions.filter((definition) =>
+      definition.name === leaf || (definition.aliases ?? []).includes(leaf),
+    );
     const callLine = node.loc?.start?.line ?? Number.MAX_SAFE_INTEGER;
-    const localTarget = matches
+    const localTarget = (
+      node.kind === "Call" ||
+      node.kind === "Identifier" ||
+      node.kind === "FieldAccess" ||
+      node.kind === "Mutation"
+    )
+      ? matches
       .filter((definition) =>
-        definition.kind === "binding" &&
+        localDefinitionKinds.has(definition.kind) &&
         definition.ownerId === ownerId &&
-        definition.line <= callLine,
+        definition.line <= callLine &&
+        positionInScope(node.loc?.start, definition.scope),
       )
-      .sort((left, right) => right.line - left.line)[0];
-    const functionMatches = matches.filter((definition) => definition.kind === "function");
+      .sort((left, right) => right.line - left.line)[0]
+      : undefined;
+    const functionMatches = matches.filter((definition) =>
+      definition.kind === "function" || definition.kind === "method",
+    );
     const topBindingMatches = matches.filter((definition) => definition.kind === "top-binding");
+    const typeMatches = matches.filter((definition) => definition.kind === "type");
+    const preferred = ifTypeReference(node.kind)
+      ? typeMatches
+      : node.kind === "Label"
+        ? functionMatches
+        : matches.filter((definition) => !localDefinitionKinds.has(definition.kind));
     const target = localTarget ??
       topBindingMatches.find((definition) => definition.package === currentPackage) ??
-      functionMatches.find((definition) =>
-        definition.kind === "function" && definition.package === currentPackage,
-      ) ??
+      preferred.find((definition) => definition.package === currentPackage) ??
       (topBindingMatches.length === 1 ? topBindingMatches[0] : undefined) ??
-      (functionMatches.length === 1 ? functionMatches[0] : undefined);
+      (preferred.length === 1 ? preferred[0] : undefined);
     if (target) {
       node.targetId = target.id;
-      if (target.kind === "binding") node.targetScope = "local";
+      if (target.ast?.type) node.symbolType = target.ast.type;
+      if (localDefinitionKinds.has(target.kind)) {
+        node.targetScope = "local";
+      }
     }
   }
   for (const child of node.children ?? []) {
     linkReferences(child, definitions, currentPackage, ownerId);
   }
+  for (const segment of node.segments ?? []) {
+    linkReferences(segment, definitions, currentPackage, ownerId);
+  }
+}
+
+function ifTypeReference(kind) {
+  return kind === "Constructor" ||
+    kind === "ConstrName" ||
+    kind === "ConstrId" ||
+    kind === "Name" ||
+    kind === "TypeName";
 }
 
 export function buildProgram(files, project) {
@@ -473,6 +909,10 @@ export function buildProgram(files, project) {
   for (const file of files) {
     file.astView = file.ast.map((node, index) => {
       const simplified = normalizeNode(node, "", { path: file.path, package: file.package });
+      if (!simplified.doc) {
+        const documentation = leadingDocumentation(file.source, simplified.loc?.start?.line);
+        if (documentation) simplified.doc = documentation;
+      }
       if (simplified.kind === "Function") {
         const definition = {
           id: `fn:${file.id}:${index}`,
@@ -504,12 +944,44 @@ export function buildProgram(files, project) {
         simplified.targetId = definition.id;
         definitions.push(definition);
         rootDefinitions.push(definition);
+      } else if (simplified.kind === "TypeDefinition" && simplified.name) {
+        const definition = {
+          id: `type:${file.id}:${index}`,
+          kind: "type",
+          name: simplified.name,
+          aliases: nestedNames(simplified, "ConstrName"),
+          fileId: file.id,
+          path: file.path,
+          package: file.package,
+          dependency: file.dependency,
+          ast: { ...simplified },
+        };
+        simplified.definitionId = definition.id;
+        simplified.targetId = definition.id;
+        definitions.push(definition);
+        rootDefinitions.push(definition);
+      } else if (simplified.kind === "Implementation" && simplified.name) {
+        const definition = {
+          id: `method:${file.id}:${index}`,
+          kind: "method",
+          name: simplified.name,
+          fileId: file.id,
+          path: file.path,
+          package: file.package,
+          dependency: file.dependency,
+          ast: { ...simplified },
+        };
+        simplified.definitionId = definition.id;
+        simplified.targetId = definition.id;
+        definitions.push(definition);
+        rootDefinitions.push(definition);
       }
       return simplified;
     });
   }
   for (const definition of rootDefinitions) {
-    collectLocalDefinitions(definition.ast, definition, definitions);
+    const source = files.find((file) => file.id === definition.fileId)?.source;
+    collectLocalDefinitions(definition.ast, definition, definitions, source);
   }
   for (const definition of rootDefinitions) {
     linkReferences(definition.ast, definitions, definition.package, definition.id);
@@ -537,6 +1009,12 @@ export function buildProgram(files, project) {
   };
 }
 
-export const testing = { displayKind, longIdent, normalizeNode, typeText };
+export const testing = {
+  displayKind,
+  leadingDocumentation,
+  longIdent,
+  normalizeNode,
+  typeText,
+};
 import fs from "node:fs";
 import path from "node:path";

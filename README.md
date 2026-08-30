@@ -26,10 +26,27 @@ The frontend and command-line data service are separate:
 - Retain raw parser AST, locations, diagnostics, docs, and explicit types.
 - Present a compact structural AST with calls, bindings, control flow,
   patterns, interpolations, binary expressions, and labelled arguments.
-- Move detailed node kind, type, source range, and docs into hover metadata.
-- Link direct calls, function values, module-level bindings, and local bindings
-  to their definitions, without duplicating a definition already in the panel
-  chain.
+  Field access, method chains, mutations, and record fields use concise
+  MoonBit-like text while retaining symbol links and type hover details;
+  punctuation-only parser nodes are omitted.
+- Pin each column's captured documentation and declaration signature above its
+  AST; adjacent comments on local bindings are included as well. Keep per-node
+  type, source range, and parser detail in compact badges and hover metadata.
+- Link direct calls, function values, module-level bindings, types, enum
+  constructors, trait implementations, local bindings, lambda parameters, and
+  pattern bindings to project-local definitions whenever the parser provides a
+  usable name and range.
+- Render ordinary local variables as compact, non-interactive scoped tokens;
+  only function-valued local bindings open another column. Project-level
+  definition references use a stronger background so call paths stand out.
+- Keep the current context column while opening or replacing columns to its
+  right, without duplicating a definition already in the panel chain. Entry
+  and file navigation live in the top bar, while the source column and every
+  definition column use the same 560-pixel width in one horizontal scrolling
+  track. Each column ends with a deduplicated shelf of definitions referenced
+  by that AST.
+- Split compact field and method chains into individually inspectable tokens;
+  every resolvable segment keeps its own type tooltip and definition link.
 - Collect compiler-aware symbols and diagnostics through `moon ide` and
   `moon check`.
 - Write a versioned `.monastry/index.json` artifact and expose it over a small
@@ -148,10 +165,12 @@ MoonBit project
   hosted or Vite Respo.mbt viewer
 ```
 
-The parser AST is complete for syntax but untyped. `moon ide gen-symbols`
-supplies a bulk semantic index; inferred expression types and exact
-cross-package navigation belong in the planned persistent LSP enrichment
-layer.
+The parser AST is complete for syntax but untyped. Monastry currently derives
+function, structure, enum, implementation, parameter, and explicitly annotated
+binding signatures from parser nodes; adjacent `///` and `//` comments become
+definition documentation. `moon ide gen-symbols` supplies a bulk semantic
+index. Inferred expression types and exact cross-package navigation belong in
+the planned persistent LSP enrichment layer.
 
 ## Artifact and privacy notes
 
@@ -186,8 +205,10 @@ For design constraints and next steps, see the
 ## Current boundaries
 
 - Full inferred expression types are not yet available from the public parser.
-- Cross-package semantic resolution is only as complete as the current
-  `moon ide` output and normalized name/range matching.
+- Project-local navigation is name-, owner-, and lexical-range-aware, but
+  overloaded labels or syntax without a usable parser name can remain
+  unresolved. Cross-package semantic resolution is only as complete as the
+  current `moon ide` output and normalized name/range matching.
 - The index is currently rebuilt as one JSON file rather than incremental
   shards.
 - Browser security settings or enterprise policies may block an HTTPS page

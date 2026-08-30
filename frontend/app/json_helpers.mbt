@@ -88,14 +88,26 @@ fn node_code(value : Json, fallback : String) -> String {
   let label = json_string(json_field(value, "label"), "")
   let base = match kind {
     "Function" => "fn " + name
+    "Implementation" => "impl " + name
     "TypeDefinition" => "type " + name
     "Binding" | "Let" => if name.is_empty() { "let" } else { "let " + name }
-    "Call" | "Identifier" | "FieldAccess" | "Constructor" =>
+    "Call"
+    | "Identifier"
+    | "FieldAccess"
+    | "FieldSegment"
+    | "MethodSegment"
+    | "ValueSegment"
+    | "Constructor" => if name.is_empty() { kind } else { name }
+    "MethodCall" =>
       if name.is_empty() {
-        kind
-      } else {
+        "method(…)"
+      } else if name.contains("(") {
         name
+      } else {
+        name + "(…)"
       }
+    "Mutation" => if name.is_empty() { "field =" } else { name + " =" }
+    "RecordField" => if name.is_empty() { "field:" } else { name + ":" }
     "Parameter" => if name.is_empty() { "parameter" } else { name }
     "Argument" => if name.is_empty() { "argument" } else { name + ":" }
     "Constant" | "Value" => if scalar.is_empty() { "value" } else { scalar }
@@ -136,9 +148,10 @@ fn node_code(value : Json, fallback : String) -> String {
 fn node_tone(value : Json) -> String {
   let kind = json_string(json_field(value, "kind"), "")
   match kind {
-    "Function" | "TypeDefinition" | "Binding" => "definition"
-    "Let" => "binding"
-    "Call" => "call"
+    "Function" | "TypeDefinition" | "Binding" | "Implementation" => "definition"
+    "Let" | "Mutation" | "RecordField" => "binding"
+    "Call" | "MethodCall" | "MethodSegment" => "call"
+    "FieldSegment" | "ValueSegment" => "value"
     "If" | "Match" | "Sequence" | "Lambda" | "Block" => "control"
     "Parameter"
     | "Argument"
@@ -193,6 +206,12 @@ fn node_tooltip(value : Json) -> String {
   } else {
     typed + "\nArgument label: " + label
   }
+  let symbol_type = json_string(json_field(value, "symbolType"), "")
+  let symbol_typed = if symbol_type.is_empty() {
+    described
+  } else {
+    described + "\nReferenced symbol type: " + symbol_type
+  }
   let doc = match json_field(value, "doc") {
     Some(String(text)) => Some(text.to_json())
     _ =>
@@ -205,8 +224,8 @@ fn node_tooltip(value : Json) -> String {
       }
   }
   match doc {
-    Some(String(text)) if !text.is_empty() => described + "\n\n" + text
-    _ => described
+    Some(String(text)) if !text.is_empty() => symbol_typed + "\n\n" + text
+    _ => symbol_typed
   }
 }
 
