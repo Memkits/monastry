@@ -11,7 +11,7 @@ import {
 
 readme = "README.md"
 
-repository = "https://github.com/moonbit-community/moonast"
+repository = "https://github.com/Memkits/moonast"
 
 license = "Apache-2.0"
 
