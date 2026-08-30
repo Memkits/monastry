@@ -34,9 +34,14 @@ state tree and virtual-DOM model.
 
 ## Requirements
 
-- A recent [MoonBit toolchain](https://www.moonbitlang.com/download/)
+- [MoonBit toolchain](https://www.moonbitlang.com/download/), currently pinned
+  in CI to `moonc 0.10.4+2cc641edf` (`moon 0.1.20260713`)
 - Node.js 20 or newer
 - Corepack/Yarn; this repository pins Yarn through `packageManager`
+
+`moonbitlang/parser` and `moonbitlang/lexer` use compiler-sensitive syntax.
+Their versions and the MoonBit toolchain must be upgraded together; CI pins the
+known-compatible toolchain instead of silently following `latest`.
 
 ## Quick start
 
