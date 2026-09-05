@@ -75,8 +75,9 @@ jobs:
         env:
           DEPLOY_KEY: ${{ secrets.rsync_private_key }}
         with:
-          flags: -avzr --delete
-          options: ""
+          flags: -avzr --delete --exclude=/pull/
+          options: >-
+            --rsync-path="mkdir -p '${{ steps.deploy.outputs.path }}' && rsync"
           ssh_options: ""
           src: dist/
           dest: rsync-user@tiye.me:${{ steps.deploy.outputs.path }}/

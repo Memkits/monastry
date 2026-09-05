@@ -49,6 +49,9 @@ The frontend and command-line data service are separate:
   every resolvable segment keeps its own type tooltip and definition link.
 - Collect compiler-aware symbols and diagnostics through `moon ide` and
   `moon check`.
+- Resolve qualified names through checked package import aliases, including
+  dependency source roots, nested modules and `using` declarations. Ambiguous references and members
+  that need a receiver type explain their status in tooltips.
 - Write a versioned `.monastry/index.json` artifact and expose it over a small
   read-only, CORS-enabled HTTP service.
 
@@ -107,6 +110,15 @@ monastry serve [project] [options]
 | `--port PORT`, `-p PORT` | Data-service port for `serve` | `4177` |
 | `--local` | Print a Vite viewer URL instead of the hosted viewer URL | disabled |
 | `--help`, `-h` | Show command help | |
+
+For cross-package links, build with checking enabled and use `--include-deps`
+to include dependency implementations. `--skip-check` keeps syntax navigation
+but disables import-alias resolution. Core-library bodies are not currently
+included by `--include-deps`. See [navigation evidence and limitations](docs/NAVIGATION.md).
+
+The prioritized implementation backlog is tracked in
+[issues #1–#5](https://github.com/Memkits/monastry/issues) and the
+[development plan](docs/DEVELOPMENT_PLAN.md).
 
 Examples:
 

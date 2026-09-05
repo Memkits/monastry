@@ -225,6 +225,9 @@ fn tree_children(
         pair.0 != "localFunction" &&
         pair.0 != "referenceName" &&
         pair.0 != "symbolType" &&
+        pair.0 != "resolution" &&
+        pair.0 != "candidateIds" &&
+        pair.0 != "ownerType" &&
         pair.0 != "segments" &&
         pair.0 != "bindings"
       })

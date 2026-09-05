@@ -62,6 +62,11 @@ jobs:
       - name: Build Respo frontend
         run: yarn build
 
+      - name: Verify real dependency navigation
+        run: |
+          node cli/monastry.mjs build frontend --include-deps --out "$RUNNER_TEMP/monastry-navigation"
+          node test/verify-navigation.mjs "$RUNNER_TEMP/monastry-navigation/index.json"
+
       - name: Validate MoonCakes package
         run: yarn release:check
 

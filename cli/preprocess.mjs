@@ -1,9 +1,9 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { findPackages, findSources, packageForFile, readModuleName } from "./project.mjs";
+import { findModules, findPackages, findSources, packageForFile, readModuleName } from "./project.mjs";
+import { readPackageInventory } from "./packages.mjs";
 import { buildProgram } from "./simplify.mjs";
 
 const toolRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -66,16 +66,33 @@ function collectSymbols(project, packages) {
 
 export function preprocess(options) {
   const moduleName = readModuleName(options.project);
+  const modules = findModules(options.project);
+  const inventory = new Map();
+  const warnings = [];
+  let check = { ok: true, diagnostics: [] };
+  for (const moduleRoot of modules) {
+    if (options.skipCheck) continue;
+    const checked = run("moon", ["check", "--output-json"], moduleRoot, true);
+    const output = `${checked.stdout}\n${checked.stderr}`.trim();
+    check.ok &&= checked.status === 0;
+    if (output) check.diagnostics.push(...output.split(/\r?\n/).filter(Boolean));
+    if (checked.status !== 0) {
+      warnings.push(`Package import resolution unavailable for ${moduleRoot}: moon check failed`);
+      continue;
+    }
+    try {
+      for (const [file, metadata] of readPackageInventory(moduleRoot, options.project)) inventory.set(file, metadata);
+    } catch (error) {
+      warnings.push(`Package import resolution unavailable for ${moduleRoot}: ${error.message}`);
+    }
+  }
+  if (options.skipCheck) warnings.push("Package import resolution disabled by --skip-check; qualified references need a checked package inventory");
+
+  // Checking can materialize dependencies. Discover their sources afterwards.
   const sources = findSources(options.project, options.includeDeps);
   const packages = findPackages(options.project);
+  const sourcePackages = findPackages(options.project, options.includeDeps);
   if (sources.length === 0) throw new Error(`No MoonBit source files found in ${options.project}`);
-
-  let check = { ok: true, diagnostics: [] };
-  if (!options.skipCheck) {
-    const checked = run("moon", ["check", "--output-json"], options.project, true);
-    const output = `${checked.stdout}\n${checked.stderr}`.trim();
-    check = { ok: checked.status === 0, diagnostics: output ? output.split(/\r?\n/).filter(Boolean) : [] };
-  }
 
   const parsed = parseSources(sources.map((item) => item.absolute));
   const byPath = new Map(parsed.map((item) => [path.resolve(item.path), item]));
@@ -84,7 +101,8 @@ export function preprocess(options) {
     return {
       id: `file:${index}`,
       path: path.relative(options.project, item.absolute),
-      package: packageForFile(item.absolute, packages, options.project),
+      package: packageForFile(item.absolute, sourcePackages, options.project),
+      ...(inventory.get(item.absolute) ?? {}),
       dependency: item.dependency,
       source: fs.readFileSync(item.absolute, "utf8"),
       ast: result.ast,
@@ -93,6 +111,7 @@ export function preprocess(options) {
   });
 
   const semantic = collectSymbols(options.project, packages);
+  semantic.warnings.push(...warnings);
   const program = buildProgram(files, options.project);
   if (!program.entry) semantic.warnings.push("No local MoonBit `main` entry function was found");
   const index = {

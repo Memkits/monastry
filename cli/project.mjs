@@ -22,11 +22,11 @@ export function findSources(project, includeDeps) {
   return files.sort((a, b) => a.absolute.localeCompare(b.absolute));
 }
 
-export function findPackages(project) {
+export function findPackages(project, includeDeps = false) {
   const packages = [];
   const visit = (directory) => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (!entry.isDirectory() || ignored.has(entry.name) || entry.name === ".mooncakes") continue;
+      if (entry.isSymbolicLink() || !entry.isDirectory() || ignored.has(entry.name) || (entry.name === ".mooncakes" && !includeDeps)) continue;
       visit(path.join(directory, entry.name));
     }
     if (fs.existsSync(path.join(directory, "moon.pkg")) || fs.existsSync(path.join(directory, "moon.pkg.json"))) {
@@ -35,6 +35,22 @@ export function findPackages(project) {
   };
   visit(project);
   return packages.sort();
+}
+
+export function findModules(project) {
+  const modules = [];
+  const visit = (directory) => {
+    if (fs.existsSync(path.join(directory, "moon.mod")) || fs.existsSync(path.join(directory, "moon.mod.json"))) {
+      modules.push(directory);
+    }
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (!entry.isSymbolicLink() && entry.isDirectory() && !ignored.has(entry.name) && entry.name !== ".mooncakes") {
+        visit(path.join(directory, entry.name));
+      }
+    }
+  };
+  visit(project);
+  return modules.sort();
 }
 
 export function readModuleName(project) {

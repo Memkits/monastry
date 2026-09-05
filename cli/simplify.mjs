@@ -261,12 +261,14 @@ function functionNode(node, context) {
   const parameters = listChildren(declarationChildren.decl_params).map(parameterNode);
   const returnType = typeText(declarationChildren.return_type) ?? "Unit";
   const signature = `(${parameters.map((item) => item.type ?? "_").join(", ")}) -> ${returnType}`;
+  const ownerType = longIdent(declarationChildren.type_name);
   const body = at(node, "children", "decl_body", "children", "expr");
   const documentation = cleanDocumentation(declarationChildren.doc);
   return {
     kind: "Function",
     name,
     type: signature,
+    ...(ownerType ? { ownerType } : {}),
     ...(documentation ? { doc: documentation } : {}),
     ...(node.loc ? { loc: node.loc } : {}),
     children: [
@@ -823,7 +825,50 @@ function collectLocalDefinitions(
   }
 }
 
-function linkReferences(node, definitions, currentPackage, ownerId) {
+function linkDeclaredMethod(segment, receiver, definitions, file) {
+  // Only use a concrete, explicitly declared receiver type. Generic variables,
+  // trait objects and return types of earlier chain segments need the compiler.
+  if (receiver?.resolution !== "local" && receiver?.resolution !== "package") return;
+  const type = receiver?.symbolType ?? receiver?.type;
+  const match = type?.match(/^(?:@?([A-Za-z_][\w/]*)\.)?([A-Za-z_]\w*)(?:\[.*\])?$/);
+  if (!match) return;
+  const packageDir = match[1]
+    ? (Object.hasOwn(file.imports ?? {}, match[1]) ? file.imports[match[1]] : undefined)
+    : file.package;
+  if (!definitions.some((d) => d.kind === "type" && d.name === match[2] && d.package === packageDir)) return;
+  const matches = definitions.filter((d) =>
+    d.kind === "function" && d.package === packageDir &&
+    d.ast.ownerType === match[2] && d.name === segment.referenceName,
+  );
+  if (matches.length !== 1) return;
+  segment.targetId = matches[0].id;
+  segment.symbolType = matches[0].ast.type;
+  segment.resolution = "declared-receiver";
+  delete segment.candidateIds;
+}
+
+function usingImports(files, file) {
+  const bindings = [];
+  for (const source of files) {
+    if (source.package !== file.package) continue;
+    if (source.sourceKind === "test" ? file.sourceKind !== "test" : file.sourceKind === "test") continue;
+    if (source.sourceKind === "whitebox-test" && file.sourceKind !== "whitebox-test") continue;
+    for (const node of source.ast) {
+      if (node.kind !== "Impl::TopUsing") continue;
+      const value = children(node);
+      const alias = longIdent(value.pkg);
+      const packageDir = Object.hasOwn(source.imports ?? {}, alias) ? source.imports[alias] : undefined;
+      for (const name of listChildren(value.names)) {
+        const target = children(children(name).name);
+        const localName = longIdent(target.binder);
+        if (localName) bindings.push({ localName, name: longIdent(target.target) ?? localName, package: packageDir });
+      }
+    }
+  }
+  return bindings;
+}
+
+function linkReferences(node, definitions, file, ownerId, usings) {
   if (!node || typeof node !== "object") return;
   const referenceKinds = new Set([
     "Call",
@@ -843,12 +888,15 @@ function linkReferences(node, definitions, currentPackage, ownerId) {
   ]);
   if (referenceKinds.has(node.kind) && node.name) {
     const referenceName = node.referenceName ?? node.name;
-    const leaf = referenceName.split(".").at(-1);
+    const parts = referenceName.replace(/^@/, "").split(".");
+    const qualified = parts.length > 1;
+    const leaf = parts.at(-1);
+    const currentPackage = file.package;
     const matches = definitions.filter((definition) =>
       definition.name === leaf || (definition.aliases ?? []).includes(leaf),
     );
     const callLine = node.loc?.start?.line ?? Number.MAX_SAFE_INTEGER;
-    const localTarget = (
+    const localTarget = !qualified && (
       node.kind === "Call" ||
       node.kind === "Identifier" ||
       node.kind === "FieldAccess" ||
@@ -863,21 +911,35 @@ function linkReferences(node, definitions, currentPackage, ownerId) {
       )
       .sort((left, right) => right.line - left.line)[0]
       : undefined;
-    const functionMatches = matches.filter((definition) =>
-      definition.kind === "function" || definition.kind === "method",
+    const targetPackage = qualified
+      ? (Object.hasOwn(file.imports ?? {}, parts[0]) ? file.imports[parts[0]] : undefined)
+      : currentPackage;
+    const member = node.kind === "MethodCall" || node.kind === "MethodSegment";
+    const field = node.kind === "FieldSegment" || node.kind === "Label";
+    const visiblePackages = new Set([currentPackage, ...Object.values(file.imports ?? {})]);
+    const usingMatches = qualified ? [] : usings.filter((binding) => binding.localName === leaf);
+    const importedDefinitions = usingMatches.length === 0 ? [] : definitions.filter((d) => usingMatches.some((b) =>
+      b.package === d.package && (b.name === d.name || (d.aliases ?? []).includes(b.name)),
+    ));
+    const candidates = [...new Set([...matches, ...importedDefinitions])].filter((definition) =>
+      !localDefinitionKinds.has(definition.kind) &&
+      (member ? visiblePackages.has(definition.package) : definition.package === targetPackage || importedDefinitions.includes(definition)) &&
+      (!ifTypeReference(node.kind) || definition.kind === "type") &&
+      (!member || definition.kind === "function" || definition.kind === "method") &&
+      !field,
     );
-    const topBindingMatches = matches.filter((definition) => definition.kind === "top-binding");
-    const typeMatches = matches.filter((definition) => definition.kind === "type");
-    const preferred = ifTypeReference(node.kind)
-      ? typeMatches
-      : node.kind === "Label"
-        ? functionMatches
-        : matches.filter((definition) => !localDefinitionKinds.has(definition.kind));
-    const target = localTarget ??
-      topBindingMatches.find((definition) => definition.package === currentPackage) ??
-      preferred.find((definition) => definition.package === currentPackage) ??
-      (topBindingMatches.length === 1 ? topBindingMatches[0] : undefined) ??
-      (preferred.length === 1 ? preferred[0] : undefined);
+    // A syntax-only adapter cannot establish a field's owner or uniquely
+    // dispatch a method. Keep visible method candidates without choosing one.
+    const target = localTarget ?? (!member && candidates.length === 1 ? candidates[0] : undefined);
+    node.resolution = target
+      ? (localTarget ? "local" : qualified ? "import" : importedDefinitions.includes(target) ? "using" : "package")
+      : field || member ? "needs-type"
+        : qualified && targetPackage === undefined ? "unknown-import"
+          : candidates.length > 1 ? "ambiguous"
+            : qualified && !definitions.some((definition) => definition.package === targetPackage)
+              ? "dependency-not-indexed"
+              : usingMatches.length > 0 && importedDefinitions.length === 0 ? "dependency-not-indexed" : "unresolved";
+    if (!target && candidates.length > 0) node.candidateIds = candidates.map((candidate) => candidate.id);
     if (target) {
       node.targetId = target.id;
       if (target.ast?.type) node.symbolType = target.ast.type;
@@ -887,10 +949,19 @@ function linkReferences(node, definitions, currentPackage, ownerId) {
     }
   }
   for (const child of node.children ?? []) {
-    linkReferences(child, definitions, currentPackage, ownerId);
+    linkReferences(child, definitions, file, ownerId, usings);
   }
   for (const segment of node.segments ?? []) {
-    linkReferences(segment, definitions, currentPackage, ownerId);
+    linkReferences(segment, definitions, file, ownerId, usings);
+  }
+  if (node.segments?.[0]?.kind === "Identifier" && node.segments?.[1]?.kind === "MethodSegment") {
+    linkDeclaredMethod(node.segments[1], node.segments[0], definitions, file);
+    if (node.kind === "MethodCall" && node.segments.length === 2 && node.segments[1].targetId) {
+      node.targetId = node.segments[1].targetId;
+      node.symbolType = node.segments[1].symbolType;
+      node.resolution = "declared-receiver";
+      delete node.candidateIds;
+    }
   }
 }
 
@@ -922,7 +993,7 @@ export function buildProgram(files, project) {
           path: file.path,
           package: file.package,
           dependency: file.dependency,
-          executable: manifestIsExecutable(project, file.package),
+          executable: file.executable ?? manifestIsExecutable(project, file.package),
           ast: simplified,
         };
         simplified.definitionId = definition.id;
@@ -983,12 +1054,14 @@ export function buildProgram(files, project) {
     const source = files.find((file) => file.id === definition.fileId)?.source;
     collectLocalDefinitions(definition.ast, definition, definitions, source);
   }
+  const importsByFile = new Map(files.map((file) => [file.id, usingImports(files, file)]));
   for (const definition of rootDefinitions) {
-    linkReferences(definition.ast, definitions, definition.package, definition.id);
+    const file = files.find((file) => file.id === definition.fileId);
+    linkReferences(definition.ast, definitions, file, definition.id, importsByFile.get(file.id));
   }
 
   const entries = topDefinitions
-    .filter((definition) => definition.name === "main")
+    .filter((definition) => definition.name === "main" && !definition.dependency)
     .sort((left, right) =>
       Number(right.executable) - Number(left.executable) ||
       Number(left.dependency) - Number(right.dependency) ||
