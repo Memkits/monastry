@@ -918,7 +918,7 @@ function linkReferences(node, definitions, file, ownerId, usings) {
     const field = node.kind === "FieldSegment" || node.kind === "Label";
     const visiblePackages = new Set([currentPackage, ...Object.values(file.imports ?? {})]);
     const usingMatches = qualified ? [] : usings.filter((binding) => binding.localName === leaf);
-    const importedDefinitions = definitions.filter((d) => usingMatches.some((b) =>
+    const importedDefinitions = usingMatches.length === 0 ? [] : definitions.filter((d) => usingMatches.some((b) =>
       b.package === d.package && (b.name === d.name || (d.aliases ?? []).includes(b.name)),
     ));
     const candidates = [...new Set([...matches, ...importedDefinitions])].filter((definition) =>
@@ -1054,9 +1054,10 @@ export function buildProgram(files, project) {
     const source = files.find((file) => file.id === definition.fileId)?.source;
     collectLocalDefinitions(definition.ast, definition, definitions, source);
   }
+  const importsByFile = new Map(files.map((file) => [file.id, usingImports(files, file)]));
   for (const definition of rootDefinitions) {
     const file = files.find((file) => file.id === definition.fileId);
-    linkReferences(definition.ast, definitions, file, definition.id, usingImports(files, file));
+    linkReferences(definition.ast, definitions, file, definition.id, importsByFile.get(file.id));
   }
 
   const entries = topDefinitions

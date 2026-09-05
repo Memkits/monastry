@@ -220,7 +220,8 @@ fn node_tooltip(value : Json) -> String {
     "declared-receiver" => "Method matched using the receiver's declared type"
     "ambiguous" => "Multiple definitions match; compiler resolution is needed"
     "needs-type" => "Receiver type is needed to resolve this member"
-    "unknown-import" => "Import alias unavailable; rebuild without --skip-check"
+    "unknown-import" =>
+      "Import alias unavailable; check package imports and indexing warnings"
     "dependency-not-indexed" => "Target package source is not in this index"
     "unresolved" => "Definition not resolved in this package"
     _ => ""

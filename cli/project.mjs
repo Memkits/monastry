@@ -26,7 +26,7 @@ export function findPackages(project, includeDeps = false) {
   const packages = [];
   const visit = (directory) => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (!entry.isDirectory() || ignored.has(entry.name) || (entry.name === ".mooncakes" && !includeDeps)) continue;
+      if (entry.isSymbolicLink() || !entry.isDirectory() || ignored.has(entry.name) || (entry.name === ".mooncakes" && !includeDeps)) continue;
       visit(path.join(directory, entry.name));
     }
     if (fs.existsSync(path.join(directory, "moon.pkg")) || fs.existsSync(path.join(directory, "moon.pkg.json"))) {
@@ -44,7 +44,7 @@ export function findModules(project) {
       modules.push(directory);
     }
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (entry.isDirectory() && !ignored.has(entry.name) && entry.name !== ".mooncakes") {
+      if (!entry.isSymbolicLink() && entry.isDirectory() && !ignored.has(entry.name) && entry.name !== ".mooncakes") {
         visit(path.join(directory, entry.name));
       }
     }
