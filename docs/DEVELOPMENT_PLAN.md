@@ -7,6 +7,32 @@ source and docs remain visible, structural details stay fully expanded, semantic
 facts appear on hover, and definitions/references can be opened indefinitely
 as right-hand context panels.
 
+## Active roadmap — 2026-09-06
+
+Implementation proceeds in bounded, independently verifiable increments:
+
+| Priority | Issue | Deliverable / dependency |
+| --- | --- | --- |
+| P0 | [#1 Package-aware navigation](https://github.com/Memkits/monastry/issues/1) | Correct dependency ownership and import aliases; first implementation slice |
+| P1 | [#2 LSP enrichment](https://github.com/Memkits/monastry/issues/2) | Compiler definition locations and per-expression inferred types, after #1 |
+| P1 | [#3 Stable schema and shards](https://github.com/Memkits/monastry/issues/3) | Stable identities and lazy loading; coordinate with #2 |
+| P2 | [#4 Calls and reverse callers](https://github.com/Memkits/monastry/issues/4) | Derived graph with explicit uncertainty, after #2/#3 |
+| P3 | [#5 Calcit adapter evaluation](https://github.com/Memkits/monastry/issues/5) | Verify a pinned Calcit release against the shared schema, after #3 |
+
+The #1 implementation reads the checked module's generated package inventory
+through an isolated adapter. It respects nested module roots, dependency source
+directories and import aliases, removes global leaf-name guessing, and explains
+unresolved references on hover. Only local `main` definitions are entry choices.
+This establishes source navigation; method dispatch and inferred expression
+types still require #2. See [navigation semantics](NAVIGATION.md).
+
+Language comparisons are design references, not measured accuracy rankings.
+Go's typed AST/SSA/callgraph and Roslyn's syntax/semantic split guide the data
+model. Calcit offers structured source snapshots and analysis commands, but its
+exact output, version compatibility and higher-order-call coverage require a
+working fixture before promising support. No language adapter should claim an
+exact whole-program runtime graph from syntax references alone.
+
 ## Milestone 0 — working vertical slice (implemented)
 
 - [x] Module/package/source discovery.
