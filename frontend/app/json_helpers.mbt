@@ -212,6 +212,24 @@ fn node_tooltip(value : Json) -> String {
   } else {
     described + "\nReferenced symbol type: " + symbol_type
   }
+  let resolution = json_string(json_field(value, "resolution"), "")
+  let resolution_hint = match resolution {
+    "import" => "Definition resolved through this package's import alias"
+    "using" => "Definition resolved through an explicit using declaration"
+    "package" => "Definition matched in this package"
+    "declared-receiver" => "Method matched using the receiver's declared type"
+    "ambiguous" => "Multiple definitions match; compiler resolution is needed"
+    "needs-type" => "Receiver type is needed to resolve this member"
+    "unknown-import" => "Import alias unavailable; rebuild without --skip-check"
+    "dependency-not-indexed" => "Target package source is not in this index"
+    "unresolved" => "Definition not resolved in this package"
+    _ => ""
+  }
+  let symbol_typed = if resolution_hint.is_empty() {
+    symbol_typed
+  } else {
+    symbol_typed + "\n" + resolution_hint
+  }
   let doc = match json_field(value, "doc") {
     Some(String(text)) => Some(text.to_json())
     _ =>

@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseArgs } from "../cli/args.mjs";
-import { findPackages, findSources, readModuleName } from "../cli/project.mjs";
+import { findModules, findPackages, findSources, packageForFile, readModuleName } from "../cli/project.mjs";
+import { readPackageInventory } from "../cli/packages.mjs";
 import { dataUrl, startServer, viewerUrl } from "../cli/server.mjs";
 import { buildProgram, testing } from "../cli/simplify.mjs";
 
@@ -205,6 +206,219 @@ test("project discovery recognizes text manifests and dependency policy", () => 
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("discovery respects nested modules, dependency source roots, and symlinks", (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "monastry-packages-"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const frontend = path.join(root, "frontend");
+  const dependency = path.join(frontend, ".mooncakes", "vendor", "dep");
+  const packageDir = path.join(dependency, "src", "nested");
+  fs.mkdirSync(packageDir, { recursive: true });
+  for (const moduleDir of [root, frontend, dependency]) {
+    fs.writeFileSync(path.join(moduleDir, "moon.mod"), 'name = "test/module"\n');
+  }
+  fs.writeFileSync(path.join(packageDir, "moon.pkg.json"), "{}");
+  const source = path.join(packageDir, "top.mbt");
+  fs.writeFileSync(source, "");
+  fs.symlinkSync(root, path.join(frontend, "cycle"), "dir");
+  assert.deepEqual(findModules(root), [root, frontend]);
+  assert.deepEqual(findPackages(root), []);
+  assert.deepEqual(findPackages(root, true), [packageDir]);
+  assert.equal(packageForFile(source, findPackages(root, true), root), "frontend/.mooncakes/vendor/dep/src/nested");
+  assert.equal(findSources(root, true)[0].dependency, true);
+});
+
+test("Moon package inventory retains canonical names, aliases and separate test imports", (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "monastry-inventory-"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const moduleRoot = path.join(root, "frontend");
+  const app = path.join(moduleRoot, "src", "app");
+  const dependency = path.join(moduleRoot, ".mooncakes/vendor/ui/src");
+  fs.mkdirSync(path.join(moduleRoot, "_build"), { recursive: true });
+  const inventoryFile = path.join(moduleRoot, "_build/packages.json");
+  const inventory = {
+    source_dir: moduleRoot,
+    packages: [{
+      root: "example/viewer", rel: "app", "root-path": app, "is-main": true,
+      files: { [path.join(app, "main.mbt")]: {} },
+      "wbtest-files": { [path.join(app, "main_wbtest.mbt")]: {} },
+      "test-files": { [path.join(app, "main_test.mbt")]: {} },
+      deps: [{ alias: "ui", fspath: dependency }],
+      "wbtest-deps": [{ alias: "assertions", fspath: path.join(root, "assertions") }],
+      "test-deps": [{ alias: "app", fspath: app }],
+    }],
+  };
+  fs.writeFileSync(inventoryFile, JSON.stringify(inventory));
+  const files = readPackageInventory(moduleRoot, root);
+  const main = files.get(path.join(app, "main.mbt"));
+  assert.equal(main.packageName, "example/viewer/app");
+  assert.equal(main.package, "frontend/src/app");
+  assert.equal(main.moduleRoot, "frontend");
+  assert.equal(main.executable, true);
+  assert.deepEqual(main.imports, { ui: "frontend/.mooncakes/vendor/ui/src" });
+  assert.equal(files.get(path.join(app, "main_wbtest.mbt")).imports.assertions, "assertions");
+  assert.deepEqual(files.get(path.join(app, "main_test.mbt")).imports, { app: "frontend/src/app" });
+  inventory.source_dir = "/another-checkout";
+  fs.writeFileSync(inventoryFile, JSON.stringify(inventory));
+  assert.throws(() => readPackageInventory(moduleRoot, root), /stale/);
+});
+
+function navigationFile(id, packageDir, ast, imports = {}) {
+  return { id, path: `${packageDir}/top.mbt`, package: packageDir, imports, dependency: false, ast };
+}
+
+function usingDeclaration(alias, target, binder = target) {
+  return { kind: "Impl::TopUsing", children: {
+    pkg: { kind: "Label", children: { name: alias } },
+    names: { kind: "Impl::TopUsing::NameList", children: [{ kind: "UsingName", children: {
+      kind: "value", name: { kind: "AliasTarget", children: {
+        binder: { kind: "Binder", children: { name: binder } },
+        target: binder === target ? null : { kind: "Binder", children: { name: target } },
+      } },
+    } }] },
+  } };
+}
+
+test("using declarations resolve renamed symbols across files in the same package", () => {
+  const program = buildProgram([
+    navigationFile("app", "app", [functionDefinition("main", identifier("draw"))], { ui: "ui" }),
+    navigationFile("imports", "app", [usingDeclaration("ui", "div", "draw")], { ui: "ui" }),
+    navigationFile("ui", "ui", [functionDefinition("div", identifier("unused"))]),
+    navigationFile("other", "other", [functionDefinition("draw", identifier("wrong"))]),
+  ], "/nonexistent");
+  const ref = program.entry.ast.children[0];
+  const target = program.definitions.find((d) => d.id === ref.targetId);
+  assert.equal(target.name, "div");
+  assert.equal(target.package, "ui");
+  assert.equal(ref.resolution, "using");
+});
+
+test("using declarations do not leak from whitebox tests into production files", () => {
+  const imports = navigationFile("tests", "app", [usingDeclaration("ui", "div")], { ui: "ui" });
+  imports.sourceKind = "whitebox-test";
+  const program = buildProgram([
+    navigationFile("app", "app", [functionDefinition("main", identifier("div"))]),
+    imports,
+    navigationFile("ui", "ui", [functionDefinition("div", identifier("unused"))]),
+  ], "/nonexistent");
+  assert.equal(program.entry.ast.children[0].targetId, undefined);
+});
+
+test("qualified references use their import even when local and other packages share the name", () => {
+  const files = [
+    navigationFile("app", "app", [
+      functionDefinition("main", identifier("ui.render")),
+      functionDefinition("render", identifier("local")),
+    ], { ui: ".mooncakes/vendor/ui/src", other: "other" }),
+    navigationFile("ui", ".mooncakes/vendor/ui/src", [functionDefinition("render", identifier("styles.style_counter"))], { styles: ".mooncakes/vendor/ui/src/styles" }),
+    navigationFile("styles", ".mooncakes/vendor/ui/src/styles", [topBinding("style_counter", identifier("unavailable"))]),
+    navigationFile("other", "other", [functionDefinition("render", identifier("wrong"))]),
+  ];
+  files[1].dependency = true;
+  files[2].dependency = true;
+  const program = buildProgram(files, "/nonexistent");
+  const render = program.definitions.find((d) => d.fileId === "ui");
+  const style = program.definitions.find((d) => d.fileId === "styles");
+  assert.equal(program.entry.ast.children[0].targetId, render.id);
+  assert.equal(program.entry.ast.children[0].resolution, "import");
+  assert.equal(render.ast.children[0].targetId, style.id);
+  assert.equal(render.ast.children[0].resolution, "import");
+});
+
+test("unimported and unavailable definitions never fall back to a global leaf name", () => {
+  for (const [name, imports, expected] of [
+    ["render", {}, "unresolved"],
+    ["missing.render", {}, "unknown-import"],
+    ["ui.render", { ui: "not-indexed" }, "dependency-not-indexed"],
+    ["@ui.render", { ui: "not-indexed" }, "dependency-not-indexed"],
+  ]) {
+    const program = buildProgram([
+      navigationFile("app", "app", [functionDefinition("main", identifier(name))], imports),
+      navigationFile("other", "other", [functionDefinition("render", identifier("unused"))]),
+    ], "/nonexistent");
+    const ref = program.entry.ast.children[0];
+    assert.equal(ref.targetId, undefined);
+    assert.equal(ref.resolution, expected);
+  }
+});
+
+test("ambiguous package definitions remain unresolved with candidate identities", () => {
+  const program = buildProgram([
+    navigationFile("app", "app", [functionDefinition("main", identifier("duplicate")), functionDefinition("duplicate", identifier("a"))]),
+    navigationFile("other-file", "app", [functionDefinition("duplicate", identifier("b"))]),
+  ], "/nonexistent");
+  const ref = program.entry.ast.children[0];
+  assert.equal(ref.targetId, undefined);
+  assert.equal(ref.resolution, "ambiguous");
+  assert.equal(ref.candidateIds.length, 2);
+});
+
+test("qualified references bypass locals while unqualified references preserve lexical shadowing", () => {
+  for (const qualified of [true, false]) {
+    const main = functionDefinition("main", identifier(qualified ? "ui.render" : "render"));
+    main.children.fun_decl.children.decl_params.children.push(positionalParameter("render", typeName("Int")));
+    const program = buildProgram([
+      navigationFile("app", "app", [main], { ui: "ui" }),
+      navigationFile("ui", "ui", [functionDefinition("render", identifier("unused"))]),
+    ], "/nonexistent");
+    const ref = program.entry.ast.children[1];
+    const target = program.definitions.find((d) => d.id === ref.targetId);
+    assert.equal(target.kind, qualified ? "function" : "parameter");
+    assert.equal(ref.resolution, qualified ? "import" : "local");
+  }
+});
+
+test("fields and dynamically dispatched methods do not open unrelated same-named functions", () => {
+  const access = {
+    kind: "Expr::DotApply",
+    children: {
+      self: identifier("value"),
+      method_name: { kind: "Label", children: { name: "update" } },
+      args: { kind: "Expr::Apply::ArgumentList", children: [] },
+    },
+  };
+  const program = buildProgram([
+    navigationFile("app", "app", [functionDefinition("main", access), functionDefinition("update", identifier("unrelated"))]),
+  ], "/nonexistent");
+  const method = program.entry.ast.children[0];
+  assert.equal(method.resolution, "needs-type");
+  assert.equal(method.targetId, undefined);
+  assert.equal(method.candidateIds.length, 1);
+});
+
+test("a dependency executable main is never the application entry", () => {
+  const dependency = navigationFile("dependency", ".mooncakes/vendor/tool", [functionDefinition("main", identifier("unused"))]);
+  dependency.dependency = true;
+  dependency.executable = true;
+  const program = buildProgram([dependency], "/nonexistent");
+  assert.equal(program.entry, null);
+  assert.deepEqual(program.entries, []);
+});
+
+test("an explicitly typed imported receiver selects its own method and keeps segment metadata", () => {
+  const call = {
+    kind: "Expr::DotApply", children: {
+      self: identifier("app"), method_name: { kind: "Label", children: { name: "update" } },
+      args: { kind: "Expr::DotApply::ArgList", children: [] },
+    },
+  };
+  const main = functionDefinition("main", call);
+  main.children.fun_decl.children.decl_params.children.push(positionalParameter("app", typeName("ui.App")));
+  const method = functionDefinition("update", identifier("unused"));
+  method.children.fun_decl.children.type_name = { kind: "TypeName", children: { name: { kind: "LongIdent::Ident", children: { value: "App" } } } };
+  const files = [
+    navigationFile("app", "app", [main, functionDefinition("update", identifier("wrong"))], { ui: "ui" }),
+    navigationFile("ui", "ui", [variantDefinition("App", "The application.", []), method]),
+  ];
+  const program = buildProgram(files, "/nonexistent");
+  const target = program.definitions.find((d) => d.fileId === "ui" && d.name === "update");
+  const view = program.entry.ast.children[1];
+  assert.equal(view.targetId, target.id);
+  assert.equal(view.resolution, "declared-receiver");
+  assert.equal(view.segments[1].targetId, target.id);
+  assert.equal(view.segments[1].symbolType, target.ast.type);
+  assert.equal(view.segments[0].symbolType, "ui.App");
 });
 
 test("simplified AST compacts lambda, interpolation, and binary wrappers", () => {
